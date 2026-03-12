@@ -1,14 +1,10 @@
-# MedAi
-sup
-
-
 # Capstone Project: MedGraph AI
 
 ## What You'll Build
 
 A medication information assistant that showcases the advantages of **GraphRAG over traditional RAG** for pharmaceutical and medication-related queries.
 
-The system will process **PDF documents about medications**, including drug leaflets, prescribing information, SPCs/SmPCs, formularies, and interaction references. It will convert this content into structured knowledge and answer complex questions such as:
+The system will process **PDF documents about medications**, including drug leaflets, prescribing information, SPCs(medication characteristics), formularies, and interaction references. It will convert this content into structured knowledge and answer complex questions such as:
 
 - dosage guidance from official documents
 - contraindications and warnings
@@ -19,11 +15,9 @@ The system will process **PDF documents about medications**, including drug leaf
 ---
 
 ## Learning Goals
-
 - Implement **RAG and GraphRAG** for medical/pharmaceutical documents
 - Build a **knowledge graph** from unstructured PDF data
 - Design a system that answers **complex medication questions with citations**
-- Compare **GraphRAG vs traditional RAG** on multi-hop healthcare queries
 - Add **safety guardrails** for high-stakes domains
 
 ---
@@ -31,24 +25,19 @@ The system will process **PDF documents about medications**, including drug leaf
 ## Project Overview
 
 ### Problem
-
 Healthcare professionals and patients often struggle because medication information is:
-
 - spread across many PDF documents
 - difficult to search quickly
 - full of cross-references between warnings, interactions, age groups, and dosage rules
 - risky to interpret without proper source grounding
 
 Traditional document search may retrieve relevant paragraphs, but it often fails when the question requires connecting multiple facts, for example:
-
 - age + body mass + contraindications
 - drug A + drug B + kidney impairment
 - substitute medication + same active substance/class + restrictions
 
 ### Solution
-
 Build a **GraphRAG-based medication assistant** that:
-
 - ingests medication PDFs
 - extracts entities such as:
     - drug name
@@ -71,7 +60,6 @@ Build a **GraphRAG-based medication assistant** that:
 ---
 
 ## Key Queries to Support
-
 Your system should answer questions like
 - “What is the recommended dose of Drug X for a child weighing 25 kg?”
 - “Can Drug A be mixed with Drug B?”
