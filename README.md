@@ -203,3 +203,216 @@ This can become a very strong portfolio project because it shows:
 - document intelligence
 - evaluation discipline
 - practical system design with safety considerations
+
+---
+
+---
+
+# Projekt MedGraph AI
+
+> [English version](#capstone-project-medgraph-ai)
+
+## Co budujesz
+
+Interfejs języka naturalnego do wyszukiwania informacji o lekach z farmaceutycznych dokumentów PDF, oparty na **GraphRAG** i ustrukturyzowanym grafie wiedzy.
+
+System przetwarza **dokumenty PDF o lekach**, w tym ulotki dla pacjenta, charakterystyki produktu (SmPC), formularze i zestawienia interakcji. Konwertuje je na ustrukturyzowaną wiedzę i odpowiada na złożone pytania takie jak:
+
+- dawkowanie na podstawie oficjalnych dokumentów
+- przeciwwskazania i ostrzeżenia
+- interakcje lek-lek
+- zamienniki i alternatywy terapeutyczne
+- bezpieczeństwo stosowania leku w kontekście pacjenta
+
+---
+
+## Cele edukacyjne
+
+- Wdrożenie **GraphRAG** dla dokumentów medycznych i farmaceutycznych
+- Budowa **grafu wiedzy** z nieustrukturyzowanych danych PDF
+- Zaprojektowanie systemu odpowiadającego na **złożone pytania o lekach z cytowaniami**
+- Dodanie **zabezpieczeń** dla dziedzin wysokiego ryzyka
+
+---
+
+## Przegląd projektu
+
+### Problem
+
+Pracownicy służby zdrowia i pacjenci mają trudności, ponieważ informacje o lekach są:
+- rozproszone w wielu dokumentach PDF
+- trudne do szybkiego przeszukania
+- pełne wzajemnych odniesień między ostrzeżeniami, interakcjami, grupami wiekowymi i zasadami dawkowania
+- ryzykowne w interpretacji bez właściwego ugruntowania w źródle
+
+Tradycyjne wyszukiwanie dokumentów może zwracać trafne fragmenty, ale zawodzi gdy pytanie wymaga połączenia wielu faktów, np.:
+- wiek + masa ciała + przeciwwskazania
+- lek A + lek B + niewydolność nerek
+- zamiennik + ta sama substancja czynna + ograniczenia
+
+### Rozwiązanie
+
+Zbuduj **asystenta lekowego opartego na GraphRAG**, który:
+- wczytuje dokumenty PDF o lekach
+- ekstrahuje encje takie jak:
+    - nazwa leku
+    - substancja czynna
+    - postać farmaceutyczna
+    - wskazanie
+    - przeciwwskazanie
+    - działanie niepożądane
+    - interakcja
+    - ograniczenie wiekowe
+    - reguła dawkowania zależna od masy ciała
+    - ostrzeżenie dotyczące ciąży/laktacji
+    - relacje zamienników i alternatyw
+- przechowuje je w **grafie wiedzy**
+- odpowiada na pytania z:
+    - ugruntowanym wyszukiwaniem
+    - rozumowaniem po połączonych faktach medycznych
+    - odniesieniami do oryginalnych sekcji dokumentów
+
+---
+
+## Obsługiwane zapytania
+
+System powinien odpowiadać na pytania takie jak:
+- "Jaka jest zalecana dawka leku X dla dziecka ważącego 25 kg?"
+- "Czy lek A można łączyć z lekiem B?"
+- "Które leki są przeciwwskazane w ciąży?"
+- "Jakie alternatywy istnieją dla leku X z tym samym składnikiem aktywnym?"
+- "Których leków należy unikać u pacjentów w podeszłym wieku?"
+- "Jakie ostrzeżenia dotyczą pacjenta z niewydolnością wątroby lub nerek?"
+- "Które leki wchodzą w interakcję z ibuprofenem?"
+
+Ważna zasada projektu:
+- W przypadku pytań o dawkowanie, zamienniki i interakcje system musi zwracać **odpowiedzi z cytowaniem źródła** i wyraźnie stwierdzać, że ostateczne decyzje wymagają **weryfikacji przez lekarza lub farmaceutę**.
+
+---
+
+## Produkty końcowe
+
+- Interfejs zapytań o leki w języku naturalnym
+- Pipeline do wczytywania dokumentów PDF o lekach
+- Graf wiedzy wyekstrahowany z tekstów farmaceutycznych
+- Silnik zapytań GraphRAG
+- Raport ewaluacyjny pokazujący dokładność systemu i jakość cytowań
+- Aplikacja demonstracyjna z cytowaniami i informacjami bezpieczeństwa
+
+---
+
+## Kryteria sukcesu
+
+### Wymagania minimalne
+
+- Wyekstrahowanie grafu wiedzy z **30+ dokumentów PDF o lekach**
+- Identyfikacja i przechowywanie kluczowych encji i relacji medycznych
+- Poprawna odpowiedź na co najmniej **10 zapytań**
+- Obsługa wieloetapowych zapytań klinicznych z użyciem rozumowania **GraphRAG**
+- Odpowiedzi ugruntowane w dokumentach z cytowaniami
+- Kompletna dokumentacja techniczna i demo
+
+### Funkcje zaawansowane (opcjonalne)
+
+- Wizualizacja grafu interakcji lekowych
+- Wprowadzanie profilu pacjenta:
+    - wiek
+    - waga
+    - status ciąży
+    - niewydolność nerek/wątroby
+- Wyjaśnialne odpowiedzi z wyróżnionymi dowodami
+- Obsługa wielojęzycznych dokumentów PDF
+- Ocena pewności i klasyfikacja ryzyka bezpieczeństwa
+- Dashboard do eksplorowania relacji między lekami
+- Wykrywanie sprzecznych informacji między źródłami
+
+---
+
+## Podstawowe przypadki użycia
+
+### Wskazówki dotyczące dawkowania
+
+"Jaka dawka leku X jest opisana dla pacjenta w wieku 8 lat i wadze 30 kg?"
+
+### Sprawdzenie interakcji
+
+"Czy lek A i lek B można stosować jednocześnie?"
+
+### Wyszukiwanie przeciwwskazań
+
+"Których leków należy unikać w ciąży?"
+
+### Wsparcie przy zamianie leku
+
+"Czym można zastąpić lek X?"
+
+### Screening bezpieczeństwa
+
+"Jakie ostrzeżenia dotyczą tego leku u pacjentów w podeszłym wieku?"
+
+### Wieloetapowe zapytanie kliniczne
+
+"Które leki przeciwbólowe są odpowiednie dla pacjenta z ryzykiem choroby wrzodowej żołądka i których należy unikać?"
+
+---
+
+## Rozpoczęcie pracy
+
+### Sugerowane źródła danych
+
+Zacznij od ustrukturyzowanych i częściowo ustrukturyzowanych dokumentów PDF o lekach, takich jak:
+
+- ulotki dla pacjenta (PIL)
+- dokumenty SmPC / SPC
+- formularze lekowe
+- wytyczne szpitalne
+- zestawienia interakcji
+
+---
+
+## Wymagania bezpieczeństwa i zgodności
+
+Ponieważ jest to dziedzina medyczna, system powinien zawierać:
+
+- **odpowiedzi oparte na cytowaniach**
+- wyraźne stwierdzenie, że jest to **narzędzie wspomagające decyzje**, a nie zastępstwo dla klinicysty
+- odmowę lub ostrożność przy pytaniach nieobsługiwanych lub wysokiego ryzyka
+- ostrzeżenie gdy dowody są brakujące lub niejednoznaczne
+- rozróżnienie między:
+    - informacjami dokładnie potwierdzonymi źródłem
+    - rozumowaniem przybliżonym lub wnioskowanym
+- logi dla identyfikowalności generowania odpowiedzi
+- sugestię konsultacji z lekarzem przed rozpoczęciem terapii
+
+Dobra zasada:
+
+> System nigdy nie powinien wymyślać dawki, interakcji ani zamiennika.
+> Powinien odpowiadać wyłącznie na podstawie pobranych dowodów lub wprost stwierdzać, że informacji nie znaleziono.
+
+---
+
+## Obszary rozszerzeń
+
+System można rozszerzyć o:
+
+- interpretację zapytań z uwzględnieniem profilu pacjenta
+- integrację klasyfikacji ATC
+- rozumowanie oparte na klasach leków
+- ranking ciężkości interakcji
+- wyjaśnialny silnik rekomendacji
+- wyróżnianie dowodów wewnątrz sekcji PDF
+- obsługę wielojęzycznych dokumentów o lekach
+- dashboard dla klinicystów lub farmaceutów
+
+---
+
+## Cel końcowy
+
+Zbuduj profesjonalny **system wiedzy o lekach oparty na AI**, który rozwiązuje rzeczywisty problem z dziedziny informacji medycznej, demonstrując zaawansowane **techniki GraphRAG**, jakość wyszukiwania i bezpieczny projekt AI.
+
+Może to stać się bardzo mocnym projektem portfolio, ponieważ pokazuje:
+- zastosowanie LLM w dziedzinie wysokiego ryzyka
+- rozumowanie oparte na grafie
+- inteligencję dokumentową
+- dyscyplinę ewaluacji
+- praktyczny projekt systemu z uwzględnieniem bezpieczeństwa
