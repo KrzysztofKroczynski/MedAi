@@ -1,17 +1,8 @@
-# Dokument Projektowy (PDD - Project Design Document)
-
-Ten dokument opisuje projekt, zakres oraz architekturę techniczną systemu.
-Jego celem jest jasne wyjaśnienie **jaki problem system rozwiązuje, jak działa oraz w jaki sposób będzie oceniany**.
-
-Dokument powinien być napisany na tyle jasno, aby osoba **niezaangażowana w projekt mogła zrozumieć system oraz odtworzyć demonstrację**.
-
----
-
 # 1. Przegląd projektu (Overview)
 
-**MedGraph AI** to chatbot do wyszukiwania informacji o lekach na podstawie ulotek w formacie PDF. Użytkownik zadaje pytanie w języku naturalnym (np. "Czy ibuprofen i warfaryna mogą być stosowane razem?"), a system przeszukuje zaindeksowane dokumenty i zwraca odpowiedź wraz ze wskazaniem źródła.
+**MedGraph AI** to interfejs języka naturalnego do wyszukiwania informacji o lekach na podstawie ulotek w formacie PDF. Użytkownik zadaje pytanie (np. "Czy ibuprofen i warfaryna mogą być stosowane razem?"), a system przeszukuje zaindeksowane dokumenty i zwraca odpowiedź wraz ze wskazaniem źródła.
 
-Głównym celem projektu jest pokazanie przewagi **GraphRAG nad tradycyjnym RAG** — pytania wymagające połączenia kilku faktów (np. lek + interakcja + przeciwwskazanie) są obsługiwane przez graf wiedzy, a nie przez losowe trafienie w fragment tekstu. Projekt jest skierowany do studentów i osób uczących się o GenAI, a jako dane testowe wykorzystuje publicznie dostępne ulotki leków. Technologie: Python, OpenAI API, LangChain, Chroma, Neo4j.
+System obsługuje zarówno proste pytania (wskazania, dawkowanie), jak i złożone zapytania wymagające połączenia kilku faktów — np. lek + interakcja + przeciwwskazanie. Wyszukiwanie odbywa się przez **graf wiedzy (GraphRAG)** zbudowany na Neo4j, który reprezentuje encje i relacje farmaceutyczne wyekstrahowane z ulotek. Projekt wykorzystuje publicznie dostępne ulotki leków jako dane źródłowe. Technologie: Python, OpenAI API, LangChain, Neo4j.
 
 ---
 
@@ -35,9 +26,7 @@ System buduje graf wiedzy z ulotek PDF, gdzie węzły to leki, substancje, wskaz
 flowchart LR
     PDF[("Ulotki PDF")] --> LOADER["PDF Loader"]
     LOADER --> CHUNKER["Chunker"]
-    CHUNKER --> EMBED["Embeddings"]
     CHUNKER --> EXTRACT["Entity Extractor\nGPT-4o"]
-    EMBED --> CHROMA[("Chroma\nVectorStore")]
     EXTRACT --> NEO4J[("Neo4j\nGraf wiedzy")]
 ```
 
@@ -45,13 +34,9 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    USER["Użytkownik"] --> ROUTER["Router"]
-    CHROMA[("Chroma")] --> RAG["RAG"]
-    NEO4J[("Neo4j")] --> GRAPH["GraphRAG"]
-    ROUTER -->|"proste pytanie"| RAG
-    ROUTER -->|"złożone pytanie"| GRAPH
-    RAG --> LLM["GPT-4o"]
-    GRAPH --> LLM
+    USER["Użytkownik"] --> GRAPH["GraphRAG"]
+    NEO4J[("Neo4j")] --> GRAPH
+    GRAPH --> LLM["GPT-4o"]
     LLM --> ANS["Odpowiedź + źródło + disclaimer"]
 ```
 
@@ -62,9 +47,7 @@ flowchart LR
 | PDF Loader | Wczytywanie ulotek | LangChain PyPDFLoader |
 | Chunker | Podział tekstu na fragmenty | RecursiveCharacterTextSplitter |
 | Entity Extractor | Ekstrakcja encji i relacji z tekstu | GPT-4o |
-| Vector Store | Przechowywanie embeddingów | Chroma |
 | Graf wiedzy | Encje i relacje farmaceutyczne | Neo4j |
-| RAG | Wyszukiwanie semantyczne (baseline) | LangChain |
 | GraphRAG | Wyszukiwanie przez graf | LangChain + Neo4j |
 | Interfejs | Interfejs użytkownika | Streamlit lub CLI |
 
@@ -77,17 +60,13 @@ flowchart LR
 - **Model**: GPT-4o przez OpenAI API
 - **Zastosowanie**: ekstrakcja encji z ulotek, odpowiadanie na pytania na podstawie pobranego kontekstu
 
-## System wyszukiwania wiedzy (Retrieval)
-
-- **RAG**: fragmenty ulotek zaindeksowane w Chroma, wyszukiwanie po podobieństwie semantycznym
-- **Model embeddingów**: `text-embedding-3-small`
-- **Chunking**: ~500 tokenów, overlap 100
-
 ## Graf wiedzy
 
 - **Baza**: Neo4j (lokalnie)
 - **Węzły**: Lek, Substancja czynna, Wskazanie, Przeciwwskazanie, Działanie niepożądane, Dawka, Grupa pacjentów
 - **Relacje**: `ZAWIERA`, `WSKAZANY_DLA`, `PRZECIWWSKAZANY_W`, `INTERAGUJE_Z`, `ALTERNATYWA_DLA`
+
+> _Wczesna wizualizacja struktury grafu — wersja poglądowa, może ulec zmianie._
 
 ```mermaid
 graph LR
@@ -110,13 +89,12 @@ graph LR
 
 ## Workflow systemu
 
+> _Wczesna wizualizacja przepływu — wersja poglądowa, może ulec zmianie._
+
 ```mermaid
 flowchart TD
-    Q["Pytanie użytkownika"] --> R["Router\nGPT-4o"]
-    R -->|"proste"| RAG["RAG\nChroma"]
-    R -->|"złożone / relacyjne"| GR["GraphRAG\nNeo4j"]
-    RAG --> LLM["GPT-4o"]
-    GR --> LLM
+    Q["Pytanie użytkownika"] --> GR["GraphRAG\nNeo4j"]
+    GR --> LLM["GPT-4o"]
     LLM --> SC{"Czy jest źródło?"}
     SC -->|tak| OK["Odpowiedź + cytowanie + disclaimer"]
     SC -->|nie| ND["Brak danych — skonsultuj z farmaceutą"]
@@ -128,8 +106,8 @@ flowchart TD
 
 | Źródło | Format | Cel | Przetwarzanie |
 |---|---|---|---|
-| Ulotki dla pacjenta (PIL) | PDF | Dawkowanie, przeciwwskazania, działania niepożądane | Chunking + embeddingi + ekstrakcja encji |
-| Charakterystyki produktu (SmPC) | PDF | Szczegółowe dane kliniczne | Chunking + embeddingi + ekstrakcja encji |
+| Ulotki dla pacjenta (PIL) | PDF | Dawkowanie, przeciwwskazania, działania niepożądane | Chunking + ekstrakcja encji i relacji → Neo4j |
+| Charakterystyki produktu (SmPC) | PDF | Szczegółowe dane kliniczne | Chunking + ekstrakcja encji i relacji → Neo4j |
 
 Każdy dokument ma zapisane metadane: nazwa leku, typ dokumentu, numer strony — żeby można było cytować źródło w odpowiedzi.
 
@@ -145,6 +123,7 @@ Aby uzyskać informację bez ręcznego przeszukiwania ulotki
 Acceptance Criteria:
 - system zwraca dawkę z podaniem dokumentu źródłowego i strony
 - odpowiedź zawiera disclaimer o konieczności konsultacji z lekarzem
+- system sugeruje konsultację z lekarzem przed rozpoczęciem terapii
 
 ---
 
@@ -157,6 +136,7 @@ Acceptance Criteria:
 - system sprawdza relację między lekami w grafie wiedzy
 - jeśli interakcja istnieje — opisuje ryzyko i podaje źródło
 - jeśli brak danych — informuje o tym wprost
+- system sugeruje konsultację z lekarzem przed rozpoczęciem terapii
 
 ---
 
@@ -169,6 +149,7 @@ Acceptance Criteria:
 - system zwraca listę leków z zaindeksowanych dokumentów
 - każda pozycja ma cytowanie
 - odpowiedź zaznacza, że lista dotyczy tylko zaindeksowanych dokumentów
+- system sugeruje konsultację z lekarzem przed rozpoczęciem terapii
 
 ---
 
@@ -180,18 +161,19 @@ Aby móc zapytać lekarza o zamiennik
 Acceptance Criteria:
 - system zwraca leki z relacją ALTERNATYWA_DLA lub tym samym składnikiem aktywnym
 - odpowiedź informuje że zamiana wymaga konsultacji
+- system sugeruje konsultację z lekarzem przed rozpoczęciem terapii
 
 ---
 
-**US-05: Porównanie RAG i GraphRAG**
+**US-05: Ostrzeżenia dla grup ryzyka**
 Jako użytkownik
-Chcę zobaczyć jak różnią się odpowiedzi RAG i GraphRAG na to samo pytanie
-Aby zrozumieć kiedy GraphRAG daje lepsze wyniki
+Chcę uzyskać informacje o ostrzeżeniach dotyczących danego leku dla konkretnej grupy pacjentów (np. osoby starsze, dzieci, pacjenci z niewydolnością nerek)
+Aby ocenić czy lek jest bezpieczny w danym przypadku
 
 Acceptance Criteria:
-- oba systemy odpowiadają na ten sam zestaw pytań
-- wyniki są zestawione obok siebie
-- widać, że GraphRAG lepiej radzi sobie z pytaniami wieloetapowymi
+- system zwraca ostrzeżenia i przeciwwskazania dla wskazanej grupy pacjentów z cytowaniem źródła
+- jeśli brak danych dla danej grupy — informuje o tym wprost
+- system sugeruje konsultację z lekarzem przed rozpoczęciem terapii
 
 ---
 
@@ -216,9 +198,8 @@ Opis: Użytkownik pyta o dawkę ibuprofenu dla 8-letniego dziecka ważącego 30 
 
 Kroki:
 1. Użytkownik wpisuje pytanie: "Jaka jest dawka ibuprofenu dla dziecka 8 lat, 30 kg?"
-2. Router rozpoznaje pytanie jako złożone (wiek + waga + lek)
-3. GraphRAG pobiera regułę dawkowania z grafu
-4. LLM generuje odpowiedź z dawką, cytowaniem i disclaimerem
+2. GraphRAG pobiera regułę dawkowania z grafu (węzły: Lek, Dawka, Grupa pacjentów)
+3. LLM generuje odpowiedź z dawką, cytowaniem, disclaimerem i sugestią konsultacji z lekarzem
 
 ---
 
@@ -231,7 +212,7 @@ Opis: Użytkownik pyta czy warfarynę można stosować z aspiryną.
 Kroki:
 1. Użytkownik wpisuje: "Czy warfaryna i aspiryna mogą być stosowane razem?"
 2. GraphRAG sprawdza krawędź INTERAGUJE_Z między oboma lekami w Neo4j
-3. LLM odpowiada z opisem ryzyka i cytowaniem źródła
+3. LLM odpowiada z opisem ryzyka, cytowaniem źródła i sugestią konsultacji z lekarzem
 
 ---
 
@@ -244,7 +225,7 @@ Opis: Użytkownik pyta o zamiennik diklofenaku.
 Kroki:
 1. Użytkownik wpisuje: "Czym można zastąpić diklofenak?"
 2. GraphRAG szuka leków z relacją ALTERNATYWA_DLA lub tym samym składnikiem aktywnym
-3. System zwraca listę z cytowaniami i informacją o konieczności konsultacji
+3. System zwraca listę z cytowaniami i sugestią konsultacji z lekarzem przed zmianą terapii
 
 ---
 
@@ -256,34 +237,40 @@ Opis: Użytkownik pyta o lek, którego nie ma w zaindeksowanych dokumentach.
 
 Kroki:
 1. Użytkownik wpisuje pytanie o lek spoza kolekcji
-2. System nie znajduje danych ani w Chroma, ani w Neo4j
-3. System odpowiada: "Brak danych w dostępnych dokumentach. Skonsultuj się z farmaceutą."
+2. System nie znajduje danych w Neo4j
+3. System odpowiada: "Brak danych w dostępnych dokumentach. Skonsultuj się z lekarzem lub farmaceutą."
 
 ---
 
-**UC-05: Porównanie RAG vs GraphRAG**
+**UC-05: Ostrzeżenia dla grupy ryzyka**
 
-Aktor: Użytkownik
+Aktor: Użytkownik (pacjent lub opiekun)
 
-Opis: Użytkownik zadaje złożone pytanie i widzi odpowiedzi obu systemów.
+Opis: Użytkownik pyta o ostrzeżenia dotyczące stosowania leku u osoby starszej z niewydolnością nerek.
 
 Kroki:
-1. Użytkownik pyta: "Które leki przeciwbólowe są bezpieczne przy chorobie wrzodowej żołądka?"
-2. RAG zwraca losowe fragmenty tekstu bez spójnej odpowiedzi
-3. GraphRAG łączy wskazania z działaniami niepożądanymi i zwraca strukturalną odpowiedź
-4. Użytkownik widzi różnicę w jakości obu podejść
+1. Użytkownik wpisuje: "Jakie ostrzeżenia dotyczą stosowania metforminy u osób starszych z niewydolnością nerek?"
+2. GraphRAG przeszukuje węzły Przeciwwskazanie i Grupa pacjentów powiązane z danym lekiem
+3. LLM generuje odpowiedź z listą ostrzeżeń, cytowaniem źródła i sugestią konsultacji z lekarzem
 
 ---
 
 # 8. Scenariusze ewaluacji (Evaluation Scenarios)
 
-**E-01: Proste pytanie o wskazania**
+Sekcja definiuje w jaki sposób system będzie testowany i oceniany. Każdy scenariusz zawiera konkretne zadanie testowe, oczekiwane zachowanie systemu oraz kryteria sukcesu.
+
+---
+
+**E-01: Pytanie o wskazania**
 
 Wejście: "Na co stosuje się ibuprofen?"
 
-Oczekiwane zachowanie: system zwraca wskazania z ulotki z cytowaniem dokumentu
+Oczekiwane zachowanie:
+- GraphRAG wyszukuje węzły Wskazanie powiązane z lekiem w Neo4j
+- system generuje odpowiedź opartą na danych z grafu
+- odpowiedź zawiera cytowanie dokumentu źródłowego i sugestię konsultacji z lekarzem
 
-Kryterium sukcesu: odpowiedź jest zgodna z ulotką, zawiera cytowanie
+Kryterium sukcesu: odpowiedź jest zgodna z ulotką, zawiera cytowanie i disclaimer
 
 ---
 
@@ -291,39 +278,77 @@ Kryterium sukcesu: odpowiedź jest zgodna z ulotką, zawiera cytowanie
 
 Wejście: "Czy warfaryna i aspiryna mogą być stosowane razem?"
 
-Oczekiwane zachowanie: GraphRAG identyfikuje interakcję w grafie i opisuje ryzyko
+Oczekiwane zachowanie:
+- GraphRAG identyfikuje krawędź INTERAGUJE_Z między oboma lekami w Neo4j
+- system opisuje ryzyko interakcji z cytowaniem źródła
+- odpowiedź zawiera sugestię konsultacji z lekarzem przed rozpoczęciem terapii
 
-Kryterium sukcesu: GraphRAG odpowiada poprawnie; RAG baseline radzi sobie gorzej lub nie trafia w odpowiedni fragment
+Kryterium sukcesu: odpowiedź poprawnie identyfikuje interakcję, podaje źródło i nie zawiera informacji spoza dokumentów
 
 ---
 
-**E-03: Pytanie wieloetapowe (multi-hop)**
+**E-03: Dawkowanie z uwzględnieniem parametrów pacjenta**
+
+Wejście: "Jaka jest dawka ibuprofenu dla dziecka w wieku 8 lat i wadze 30 kg?"
+
+Oczekiwane zachowanie:
+- GraphRAG przechodzi po węzłach Lek → Dawka → Grupa pacjentów w Neo4j
+- system zwraca dawkę dopasowaną do podanych parametrów
+- odpowiedź zawiera cytowanie i sugestię konsultacji z lekarzem przed podaniem leku dziecku
+
+Kryterium sukcesu: zwrócona dawka jest zgodna z ulotką, odpowiedź zawiera cytowanie i disclaimer
+
+---
+
+**E-04: Pytanie wieloetapowe (multi-hop)**
 
 Wejście: "Które leki przeciwbólowe są bezpieczne dla pacjenta z chorobą wrzodową żołądka?"
 
-Oczekiwane zachowanie: GraphRAG łączy wskazania bólowe z efektami żołądkowymi i dzieli leki na bezpieczne i niezalecane
+Oczekiwane zachowanie:
+- GraphRAG łączy węzły Wskazanie (ból) z węzłami Działanie niepożądane (żołądek) i Przeciwwskazanie
+- system dzieli leki na bezpieczne i niezalecane z uzasadnieniem
+- odpowiedź zawiera cytowania i sugestię konsultacji z lekarzem
 
-Kryterium sukcesu: odpowiedź zawiera dwie kategorie leków z uzasadnieniem; RAG nie radzi sobie z tym pytaniem
-
----
-
-**E-04: Brak danych**
-
-Wejście: pytanie o lek nieobecny w kolekcji
-
-Oczekiwane zachowanie: system odmawia odpowiedzi i sugeruje konsultację
-
-Kryterium sukcesu: brak wymyślonych informacji w odpowiedzi
+Kryterium sukcesu: odpowiedź zawiera obie kategorie leków z uzasadnieniem opartym na danych z grafu
 
 ---
 
-**E-05: Leki przeciwwskazane w ciąży**
+**E-05: Wyszukanie zamiennika**
 
-Wejście: "Które leki są przeciwwskazane w ciąży?"
+Wejście: "Czym można zastąpić diklofenak?"
 
-Oczekiwane zachowanie: GraphRAG przeszukuje węzły PatientGroup(ciąża) i zwraca listę leków z cytowaniami
+Oczekiwane zachowanie:
+- GraphRAG wyszukuje węzły powiązane relacją ALTERNATYWA_DLA lub tą samą substancją czynną
+- system zwraca listę alternatyw z cytowaniami
+- odpowiedź informuje że zamiana wymaga konsultacji z lekarzem przed rozpoczęciem terapii
 
-Kryterium sukcesu: lista zawiera co najmniej 3 leki z cytowaniami; odpowiedź zaznacza że dane dotyczą tylko zaindeksowanych dokumentów
+Kryterium sukcesu: lista zawiera co najmniej jeden zamiennik z cytowaniem i disclaimerem
+
+---
+
+**E-06: Ostrzeżenia dla grupy ryzyka**
+
+Wejście: "Jakie ostrzeżenia dotyczą stosowania metforminy u osób starszych z niewydolnością nerek?"
+
+Oczekiwane zachowanie:
+- GraphRAG przeszukuje węzły Przeciwwskazanie i Grupa pacjentów powiązane z lekiem
+- system zwraca listę ostrzeżeń właściwych dla wskazanej grupy
+- odpowiedź zawiera cytowania i sugestię konsultacji z lekarzem
+
+Kryterium sukcesu: odpowiedź zawiera co najmniej jedno ostrzeżenie z cytowaniem; zaznacza że dane dotyczą tylko zaindeksowanych dokumentów
+
+---
+
+**E-07: Brak danych w kolekcji**
+
+Wejście: pytanie o lek nieobecny w zaindeksowanych dokumentach
+
+Oczekiwane zachowanie:
+- system nie znajduje danych w Neo4j
+- system nie generuje odpowiedzi z pamięci modelu
+- system zwraca jednoznaczny komunikat o braku danych i sugeruje konsultację z lekarzem lub farmaceutą
+
+Kryterium sukcesu: odpowiedź nie zawiera żadnych wymyślonych informacji; komunikat jest jednoznaczny
 
 ---
 
@@ -349,19 +374,19 @@ Słabej jakości skany mogą dać błędny tekst. W takich przypadkach wyniki s�
 
 1. Ustaw klucz `OPENAI_API_KEY` w pliku `.env`
 2. Uruchom Neo4j lokalnie (`docker run -p 7474:7474 -p 7687:7687 neo4j`)
-3. Uruchom ingestion: `python ingest.py` (wczytuje PDF-y, buduje Chroma i Neo4j)
+3. Uruchom ingestion: `python ingest.py` (wczytuje PDF-y, buduje graf w Neo4j)
 4. Uruchom aplikację: `streamlit run app.py`
 
 ## Przebieg demonstracji
 
-**Krok 1** — pokaż graf wiedzy w Neo4j Browser: węzły leków i relacje między nimi
+**Krok 1** — pokaż graf wiedzy w Neo4j Browser: węzły leków, substancji czynnych, wskazań, przeciwwskazań i relacje między nimi
 
-**Krok 2** — zadaj proste pytanie (np. "Na co stosuje się paracetamol?") — pokaż że RAG poprawnie odpowiada z cytowaniem
+**Krok 2** — zadaj proste pytanie o wskazania (np. "Na co stosuje się paracetamol?") — pokaż odpowiedź z cytowaniem i disclaimerem
 
-**Krok 3** — zadaj pytanie o interakcję (np. "Czy warfaryna i aspiryna mogą być razem?") — pokaż że GraphRAG trafia w relację w grafie, a RAG może nie znaleźć odpowiedzi
+**Krok 3** — zadaj pytanie o interakcję (np. "Czy warfaryna i aspiryna mogą być stosowane razem?") — pokaż że GraphRAG przechodzi po krawędzi INTERAGUJE_Z w grafie i zwraca odpowiedź z cytowaniem
 
-**Krok 4** — zadaj pytanie wieloetapowe (np. "Który lek przeciwbólowy jest bezpieczny przy chorobie wrzodowej?") — pokaż że GraphRAG łączy fakty, RAG nie radzi sobie
+**Krok 4** — zadaj pytanie wieloetapowe (np. "Który lek przeciwbólowy jest bezpieczny przy chorobie wrzodowej żołądka?") — pokaż że GraphRAG łączy węzły wskazań i działań niepożądanych i zwraca strukturalną odpowiedź
 
-**Krok 5** — zapytaj o lek spoza kolekcji — pokaż uczciwy komunikat o braku danych
+**Krok 5** — zadaj pytanie o ostrzeżenia dla grupy ryzyka (np. "Jakie ostrzeżenia dotyczą metforminy u osób starszych z niewydolnością nerek?") — pokaż odpowiedź z cytowaniem i sugestią konsultacji z lekarzem
 
-**Krok 6** — pokaż tabelę porównawczą RAG vs GraphRAG na kilku pytaniach
+**Krok 6** — zapytaj o lek spoza kolekcji — pokaż uczciwy komunikat o braku danych i sugestię konsultacji ze specjalistą

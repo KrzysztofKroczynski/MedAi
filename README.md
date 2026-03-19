@@ -1,8 +1,10 @@
 # Capstone Project: MedGraph AI
 
+> [Wersja polska](#projekt-medgraph-ai)
+
 ## What You'll Build
 
-A medication information assistant that showcases the advantages of **GraphRAG over traditional RAG** for pharmaceutical and medication-related queries.
+A natural language interface for searching medication information from pharmaceutical PDF documents, powered by **GraphRAG** and a structured knowledge graph.
 
 The system will process **PDF documents about medications**, including drug leaflets, prescribing information, SPCs(medication characteristics), formularies, and interaction references. It will convert this content into structured knowledge and answer complex questions such as:
 
@@ -15,7 +17,7 @@ The system will process **PDF documents about medications**, including drug leaf
 ---
 
 ## Learning Goals
-- Implement **RAG and GraphRAG** for medical/pharmaceutical documents
+- Implement **GraphRAG** for medical/pharmaceutical documents
 - Build a **knowledge graph** from unstructured PDF data
 - Design a system that answers **complex medication questions with citations**
 - Add **safety guardrails** for high-stakes domains
@@ -80,8 +82,7 @@ Important project rule:
 - PDF ingestion pipeline for medication documents
 - Knowledge graph extracted from pharmaceutical texts
 - GraphRAG query engine
-- Naive RAG baseline for comparison
-- Evaluation report showing where GraphRAG performs better
+- Evaluation report demonstrating system accuracy and citation quality
 - Demo application with citations and safety notices
 
 ---
@@ -93,7 +94,7 @@ Important project rule:
 - Extract knowledge graph from **30+ medication PDFs**
 - Identify and store key medical/pharmaceutical entities and relationships
 - Answer at least **10 medication intelligence queries correctly**
-- Demonstrate **GraphRAG superiority** on multi-hop questions
+- Answer multi-hop clinical queries using **GraphRAG** reasoning
 - Provide document-grounded answers with citations
 - Complete technical documentation and demo
 
