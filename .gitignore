@@ -1,5 +1,10 @@
 .DS_Store
 
+# Project-specific
+logs/*.log
+logs/*.md
+.env
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
