@@ -1,6 +1,6 @@
 # Entity and relation extractor for medication text chunks.
 # Calls the LLM using ENTITY_EXTRACTION_PROMPT from shared/prompts.py.
-# Gets the client and model from shared/llm_client.py (EXTRACTION_MODEL).
+# Gets the client and model from shared/llm_client.py (MODEL).
 # For each chunk, sends the text to the LLM and parses the returned JSON.
 # Expected JSON structure:
 #   {

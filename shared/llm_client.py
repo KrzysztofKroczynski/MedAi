@@ -8,11 +8,10 @@
 #
 # Exposes:
 #   get_client() -> openai.OpenAI   returns the configured client
-#   EXTRACTION_MODEL -> str          model to use in extractor.py (cheaper/faster)
-#   QA_MODEL -> str                  model to use in qa.py and retriever.py (best quality)
+#   MODEL -> str                    single model used for all LLM calls (extraction, Cypher, QA)
 #
-# Model defaults per provider:
-#   openai:   EXTRACTION_MODEL = "gpt-4o-mini",  QA_MODEL = "gpt-4o"
-#   deepseek: EXTRACTION_MODEL = "deepseek-chat", QA_MODEL = "deepseek-chat"
+# Model defaults per provider (used if MODEL env var is not set):
+#   deepseek: "deepseek-chat"
+#   openai:   "gpt-4o"
 #
-# Models can be overridden individually via EXTRACTION_MODEL and QA_MODEL env vars.
+# Override by setting MODEL in .env.
