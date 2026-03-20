@@ -54,7 +54,7 @@ services:
     volumes:
       - ./data/processed:/app/data/processed:ro
       - ./logs:/app/logs
-    command: ["python", "seed.py"]
+    command: ["sh", "-c", "python graph/schema.py && python seed.py"]
     profiles:
       - seed   # run with: docker compose --profile seed run --rm seed
 
