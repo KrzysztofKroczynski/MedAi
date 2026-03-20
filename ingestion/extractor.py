@@ -1,5 +1,5 @@
 # Entity and relation extractor for medication text chunks.
-# Calls GPT-4o using ENTITY_EXTRACTION_PROMPT from shared/prompts.py.
+# Calls GPT-4o-mini using ENTITY_EXTRACTION_PROMPT from shared/prompts.py.
 # For each chunk, sends the text to the LLM and parses the returned JSON.
 # Expected JSON structure:
 #   {

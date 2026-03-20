@@ -30,13 +30,33 @@ services:
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       NEO4J_URI: bolt://neo4j:7687
-      NEO4J_USER: ${NEO4J_USER}
-      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+      NEO4J_USER: ${NEO4J_USER:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-medgraph_pass}
     volumes:
       - ./data/pdfs:/app/data/pdfs:ro
+      - ./data/processed:/app/data/processed   # extraction results saved here
       - ./logs:/app/logs
     profiles:
-      - ingest   # run with: docker compose --profile ingest run ingest
+      - ingest   # run with: docker compose --profile ingest run --rm ingest
+
+  seed:
+    build:
+      context: .
+      dockerfile: Dockerfile.ingest   # reuses same image
+    container_name: medgraph_seed
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: ${NEO4J_USER:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-medgraph_pass}
+    volumes:
+      - ./data/processed:/app/data/processed:ro
+      - ./logs:/app/logs
+    command: ["python", "seed.py"]
+    profiles:
+      - seed   # run with: docker compose --profile seed run --rm seed
 
   app:
     build:
