@@ -1,5 +1,6 @@
 # GraphRAG retriever: translates a user question into a Cypher query and fetches graph context.
-# Step 1 — use CYPHER_GENERATION_PROMPT (shared/prompts.py) with GPT-4o to produce a
+# Step 1 — use CYPHER_GENERATION_PROMPT (shared/prompts.py) with the configured LLM
+#   (gets client and QA_MODEL from shared/llm_client.py) to produce a
 #   Cypher READ query from the user's natural language question and the graph schema.
 # Step 2 — execute the generated Cypher against Neo4j via shared/neo4j_client.py.
 # Step 3 — return the raw result rows plus any source metadata attached to the matched nodes.

@@ -1,4 +1,5 @@
-# QA engine: generates the final answer from graph context using GPT-4o.
+# QA engine: generates the final answer from graph context using the configured LLM.
+# Gets the client and model from shared/llm_client.py (QA_MODEL).
 # Takes the user question and the assembled context dict from context.py.
 # If context is empty: returns a fixed "no data" refusal message without calling the LLM.
 # Otherwise: calls GPT-4o with QA_PROMPT (shared/prompts.py), passing the question and context text.
