@@ -2,6 +2,85 @@
 
 > [Wersja polska](#projekt-medgraph-ai)
 
+---
+
+## Running the Project (Docker)
+
+### Prerequisites
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running
+
+### 1. Configure environment
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and fill in:
+
+```
+OPENAI_API_KEY=sk-...
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=your_password_here
+```
+
+### 2. Add medication PDFs
+
+Place PDF files (drug leaflets, SmPC documents) in `data/pdfs/`.
+
+### 3. Start Neo4j
+
+```bash
+docker compose up neo4j -d
+```
+
+Neo4j Browser is available at `http://localhost:7474` once healthy.
+
+### 4. Run ingestion (one-shot)
+
+Loads all PDFs, extracts entities via GPT-4o, and builds the knowledge graph in Neo4j.
+
+```bash
+docker compose --profile ingest run --rm ingest
+```
+
+Re-run this whenever you add new PDFs. It is safe to re-run — duplicate data is not created.
+
+### 5. Start the app
+
+```bash
+docker compose up app
+```
+
+Open `http://localhost:8501` in your browser.
+
+### Stopping everything
+
+```bash
+docker compose down
+```
+
+To also delete the Neo4j graph data (full reset):
+
+```bash
+docker compose down -v
+```
+
+### Rebuilding after code changes
+
+```bash
+docker compose build
+```
+
+Or rebuild a specific service only:
+
+```bash
+docker compose build app
+docker compose build ingest
+```
+
+---
+
 ## What You'll Build
 
 A natural language interface for searching medication information from pharmaceutical PDF documents, powered by **GraphRAG** and a structured knowledge graph.
