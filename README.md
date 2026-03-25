@@ -28,10 +28,13 @@ NEO4J_PASSWORD=your_password_here
 
 Place PDF files (drug leaflets, SmPC documents) in `data/pdfs/`.
 
-### 3. Start Neo4j
+### 3. Set up the database
+
+Start Neo4j, then apply the graph schema (constraints + indexes):
 
 ```bash
 docker compose up neo4j -d
+docker compose --profile setup run --rm setup
 ```
 
 Neo4j Browser is available at `http://localhost:7474` once healthy.
