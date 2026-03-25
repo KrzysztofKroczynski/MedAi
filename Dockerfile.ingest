@@ -9,5 +9,6 @@ COPY ingestion/ ./ingestion/
 COPY graph/ ./graph/
 COPY shared/ ./shared/
 COPY ingest.py .
+COPY seed.py .
 
 CMD ["python", "ingest.py"]
