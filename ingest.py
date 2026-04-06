@@ -9,10 +9,14 @@
 # Should be idempotent: safe to re-run after adding new PDFs (MERGE prevents duplicates).
 
 # TODO: TESTING ONLY
-from ingestion.loader import load_pdfs
-from ingestion.chunker import chunk_documents
 import logging
 from pathlib import Path
+
+from ingestion.chunker import chunk_documents
+from ingestion.extractor import extract_from_chunks
+from ingestion.loader import load_pdfs
+
+
 if __name__ == "__main__":
 
 
@@ -31,16 +35,40 @@ if __name__ == "__main__":
     logger.info("App started")
 
     docs = load_pdfs()
-    print(len(docs))
+    print(f"pages: {len(docs)}")
+
+    if not docs:
+        print("No PDF pages loaded. Put PDF files under data/pdfs and re-run.")
+        raise SystemExit(0)
+
+    print("sample page metadata:")
     print(docs[0].metadata)
+    print("sample page content:")
     print(docs[0].page_content[:300])
 
     chunks = chunk_documents(docs)
+    extractions = extract_from_chunks(chunks)
 
-    print(f"pages: {len(docs)}")
     print(f"chunks: {len(chunks)}")
+    print(f"extractions: {len(extractions)}")
+
+    if not chunks:
+        print("No chunks generated.")
+        raise SystemExit(0)
+
     print(f"-" * 50)
     print(chunks[0].metadata)
-    print(chunks[1].metadata)
+    if len(chunks) > 1:
+        print(chunks[1].metadata)
     print(f"-" * 50)
-    print(chunks[1].page_content[:300])
+    print(chunks[0].page_content[:300])
+
+    if extractions:
+        first = extractions[0]
+        print(f"-" * 50)
+        print("sample extraction metadata:")
+        print(first.get("metadata", {}))
+        print("sample entities:")
+        print(first.get("entities", [])[:5])
+        print("sample relations:")
+        print(first.get("relations", [])[:5])
