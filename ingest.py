@@ -12,12 +12,14 @@
 import logging
 from pathlib import Path
 
+from graph.schema import apply
 from ingestion.chunker import chunk_documents
 from ingestion.extractor import extract_from_chunks
 from ingestion.loader import load_pdfs
 
 
 if __name__ == "__main__":
+    apply()
 
 
     Path("logs").mkdir(exist_ok=True)

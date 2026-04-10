@@ -28,34 +28,50 @@ NEO4J_PASSWORD=your_password_here
 
 Place PDF files (drug leaflets, SmPC documents) in `data/pdfs/`.
 
-### 3. Set up the database
+### 3. Choose a startup mode
 
-Start Neo4j, then apply the graph schema (constraints + indexes):
+There are three modes depending on what you need:
 
-```bash
-docker compose up neo4j -d
-docker compose --profile setup run --rm setup
-```
+---
 
-Neo4j Browser is available at `http://localhost:7474` once healthy.
+#### Mode A — app only (Neo4j + Streamlit UI)
 
-### 4. Run ingestion (one-shot)
-
-Loads all PDFs, extracts entities via GPT-4o, and builds the knowledge graph in Neo4j.
+Use this when the graph is already populated and you just want to run the app.
 
 ```bash
-docker compose --profile ingest run --rm ingest
+docker compose up
 ```
 
-Re-run this whenever you add new PDFs. It is safe to re-run — duplicate data is not created.
+- Neo4j Browser: `http://localhost:7474`
+- App: `http://localhost:8501`
 
-### 5. Start the app
+---
+
+#### Mode B — ingest (first run or new PDFs added)
+
+Use this to extract entities from PDFs via LLM and populate the knowledge graph.
+Applies the Neo4j schema automatically before ingestion.
+Results are saved to `data/processed/` so they can be reused without re-running the LLM.
 
 ```bash
-docker compose up app
+docker compose --profile ingest up
 ```
 
-Open `http://localhost:8501` in your browser.
+Re-run this whenever you add new PDFs. Safe to re-run — duplicate data is not created.
+
+---
+
+#### Mode C — seed (rebuild graph from existing extractions)
+
+Use this to reload the graph from already-extracted `data/processed/` files,
+without calling the LLM again. Useful for resetting or migrating the graph.
+Applies the Neo4j schema automatically.
+
+```bash
+docker compose --profile seed up
+```
+
+---
 
 ### Stopping everything
 
