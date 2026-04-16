@@ -13,9 +13,11 @@
 
 from __future__ import annotations
 
+import os
 import json
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Sequence
 
 from langchain_core.documents import Document
@@ -200,6 +202,29 @@ def extract_from_chunk(document: Document, client: Any | None = None) -> dict[st
         return None
 
 
+def _resolve_max_workers(total_chunks: int) -> int:
+    """Resolve a safe worker count for parallel extraction."""
+    default_workers = min(8, total_chunks)
+    raw_value = os.getenv("EXTRACTION_MAX_WORKERS")
+
+    if not raw_value:
+        return max(1, default_workers)
+
+    try:
+        configured = int(raw_value)
+        if configured < 1:
+            raise ValueError("must be >= 1")
+    except Exception:
+        logger.warning(
+            "Invalid EXTRACTION_MAX_WORKERS=%r. Falling back to default=%s.",
+            raw_value,
+            default_workers,
+        )
+        return max(1, default_workers)
+
+    return min(total_chunks, configured)
+
+
 def extract_from_chunks(chunks: Sequence[Document]) -> list[dict[str, Any]]:
     """
     Extract entities/relations from chunked documents.
@@ -210,25 +235,52 @@ def extract_from_chunks(chunks: Sequence[Document]) -> list[dict[str, Any]]:
         logger.warning("No chunks provided to extract_from_chunks")
         return []
 
-    client = get_client(temperature=0)
-
-    logger.info("Starting extraction for %s chunks using model=%s", len(chunks), MODEL)
-
-    results: list[dict[str, Any]] = []
-    skipped = 0
-
-    for chunk in chunks:
-        result = extract_from_chunk(document=chunk, client=client)
-        if result is None:
-            skipped += 1
-            continue
-        results.append(result)
+    workers = _resolve_max_workers(len(chunks))
 
     logger.info(
-        "Finished extraction: input_chunks=%s extracted=%s skipped=%s",
+        "Starting extraction for %s chunks using model=%s workers=%s",
+        len(chunks),
+        MODEL,
+        workers,
+    )
+
+    results_by_index: dict[int, dict[str, Any]] = {}
+    skipped = 0
+
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="extractor") as executor:
+        futures = {
+            executor.submit(extract_from_chunk, document=chunk, client=None): index
+            for index, chunk in enumerate(chunks)
+        }
+
+        for future in as_completed(futures):
+            index = futures[future]
+            chunk = chunks[index]
+            metadata = dict(chunk.metadata or {})
+            chunk_id = metadata.get("chunk_id", "unknown")
+
+            try:
+                result = future.result()
+            except Exception as exc:
+                logger.warning("Skipping chunk %s due to worker error: %s", chunk_id, exc)
+                logger.debug("Chunk metadata=%s", metadata)
+                skipped += 1
+                continue
+
+            if result is None:
+                skipped += 1
+                continue
+
+            results_by_index[index] = result
+
+    results = [results_by_index[i] for i in sorted(results_by_index)]
+
+    logger.info(
+        "Finished extraction: input_chunks=%s extracted=%s skipped=%s workers=%s",
         len(chunks),
         len(results),
         skipped,
+        workers,
     )
 
     return results
