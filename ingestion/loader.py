@@ -3,6 +3,7 @@
 # For each page, attaches metadata: { source_file, page_number, doc_type }.
 # doc_type is inferred from filename keywords (e.g. "PIL", "SmPC").
 # Returns a flat list of LangChain Document objects across all PDFs.
+from __future__ import annotations
 
 import logging
 import os

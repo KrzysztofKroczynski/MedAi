@@ -19,7 +19,7 @@ from shared.neo4j_client import get_driver
 logger = logging.getLogger(__name__)
 
 _CONSTRAINTS = [
-    ("drug_name_unique",             "Drug",             "name"),
+    ("drug_name_unique",              "Drug",             "name"),
     ("active_ingredient_name_unique", "ActiveIngredient", "name"),
     ("indication_name_unique",        "Indication",       "name"),
     ("contraindication_name_unique",  "Contraindication", "name"),

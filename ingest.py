@@ -7,6 +7,7 @@
 #   5. graph/graph_builder.py — write results into Neo4j
 # Logs progress and errors to logs/ directory.
 # Should be idempotent: safe to re-run after adding new PDFs (MERGE prevents duplicates).
+from __future__ import annotations
 
 # TODO: TESTING ONLY
 import json
@@ -14,6 +15,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from graph.graph_builder import write_extractions
 from graph.schema import apply
 from ingestion.chunker import chunk_documents
 from ingestion.extractor import extract_from_chunks
@@ -119,3 +121,12 @@ if __name__ == "__main__":
         print(first.get("entities", [])[:5])
         print("sample relations:")
         print(first.get("relations", [])[:5])
+
+    stats = write_extractions(extractions)
+    logger.info(
+        "Graph persisted: records=%s nodes=%s relations=%s failed=%s",
+        stats["records"],
+        stats["nodes"],
+        stats["relations"],
+        stats["failed"],
+    )
