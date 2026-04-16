@@ -28,75 +28,24 @@ NEO4J_PASSWORD=your_password_here
 
 Place PDF files (drug leaflets, SmPC documents) in `data/pdfs/`.
 
-### 3. Choose a startup mode
+### 3. Run
 
-There are three modes depending on what you need:
+| Command | What it does |
+|---|---|
+| `make seed` | Load pre-processed JSON into Neo4j (fast, no LLM) |
+| `make full` | Extract PDFs with LLM, then load into graph |
 
----
+> Requires `make`. Comes with Git Bash / MinGW on Windows.
 
-#### Mode A — app only (Neo4j + Streamlit UI)
-
-Use this when the graph is already populated and you just want to run the app.
+Raw Docker equivalents if `make` is unavailable:
 
 ```bash
-docker compose up
+docker compose --profile seed up   # seed only
+docker compose --profile full up   # ingest + seed
 ```
 
 - Neo4j Browser: `http://localhost:7474`
 - App: `http://localhost:8501`
-
----
-
-#### Mode B — ingest (first run or new PDFs added)
-
-Use this to extract entities from PDFs via LLM and populate the knowledge graph.
-Applies the Neo4j schema automatically before ingestion.
-Results are saved to `data/processed/` so they can be reused without re-running the LLM.
-
-```bash
-docker compose --profile ingest up
-```
-
-Re-run this whenever you add new PDFs. Safe to re-run — duplicate data is not created.
-
----
-
-#### Mode C — seed (rebuild graph from existing extractions)
-
-Use this to reload the graph from already-extracted `data/processed/` files,
-without calling the LLM again. Useful for resetting or migrating the graph.
-Applies the Neo4j schema automatically.
-
-```bash
-docker compose --profile seed up
-```
-
----
-
-### Stopping everything
-
-```bash
-docker compose down
-```
-
-To also delete the Neo4j graph data (full reset):
-
-```bash
-docker compose down -v
-```
-
-### Rebuilding after code changes
-
-```bash
-docker compose build
-```
-
-Or rebuild a specific service only:
-
-```bash
-docker compose build app
-docker compose build ingest
-```
 
 ---
 
