@@ -31,6 +31,27 @@ _CONSTRAINTS = [
 _FULLTEXT_INDEX = "drugNameFulltext"
 
 
+def reset() -> None:
+    """Delete all nodes and relationships, drop constraints and indexes."""
+    driver = get_driver()
+    with driver.session() as session:
+        session.run("MATCH (n) CALL { WITH n DETACH DELETE n } IN TRANSACTIONS OF 10000 ROWS")
+        logger.info("All nodes and relationships deleted")
+
+        for constraint_name, _, _ in _CONSTRAINTS:
+            session.run(f"DROP CONSTRAINT {constraint_name} IF EXISTS")
+            logger.info("Constraint dropped: %s", constraint_name)
+
+        existing = session.run(
+            "SHOW FULLTEXT INDEXES WHERE name = $name", name=_FULLTEXT_INDEX
+        ).data()
+        if existing:
+            session.run(f"DROP INDEX {_FULLTEXT_INDEX}")
+            logger.info("Fulltext index dropped: %s", _FULLTEXT_INDEX)
+
+    logger.info("Reset complete.")
+
+
 def apply() -> None:
     """Apply all constraints and indexes. Safe to call multiple times."""
     driver = get_driver()

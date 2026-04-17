@@ -152,7 +152,59 @@ def _upsert_relation(
     )
 
 
-def write_extraction(extraction: Mapping[str, Any]) -> dict[str, int]:
+def _build_global_label_map(
+    extractions: Sequence[Mapping[str, Any]],
+) -> dict[str, set[str]]:
+    """Scan all extractions and build a name → set-of-labels map.
+
+    Used so relation endpoints that are missing from a chunk's local entity list
+    can be resolved to their real label(s) without querying the DB.
+    """
+    global_map: dict[str, set[str]] = {}
+    for extraction in extractions:
+        if not isinstance(extraction, Mapping):
+            continue
+        for entity in extraction.get("entities", []) or []:
+            if not isinstance(entity, Mapping):
+                continue
+            label = _normalize_label(entity.get("type"))
+            if label == "Entity":
+                continue
+            name = _normalize_name(entity.get("name"), label=label)
+            if name:
+                global_map.setdefault(name, set()).add(label)
+    return global_map
+
+
+def _resolve_labels(
+    name: str,
+    local_label_by_name: dict[str, str],
+    global_label_map: dict[str, set[str]],
+) -> list[str]:
+    """Return the label(s) to use for a relation endpoint.
+
+    Priority:
+    1. Local chunk map (most specific — from this extraction's entity list).
+    2. Global map built from all extractions (may return multiple labels,
+       e.g. both Drug and ActiveIngredient when the same name appears as both
+       across the corpus).
+    3. Fall back to Entity only when nothing is found.
+    """
+    local = local_label_by_name.get(name)
+    if local and local != "Entity":
+        return [local]
+
+    global_labels = global_label_map.get(name)
+    if global_labels:
+        return sorted(global_labels)  # sorted for determinism
+
+    return ["Entity"]
+
+
+def write_extraction(
+    extraction: Mapping[str, Any],
+    global_label_map: dict[str, set[str]] | None = None,
+) -> dict[str, int]:
     """Write a single extraction result into Neo4j."""
     entities = extraction.get("entities", []) or []
     relations = extraction.get("relations", []) or []
@@ -165,7 +217,10 @@ def write_extraction(extraction: Mapping[str, Any]) -> dict[str, int]:
     if not isinstance(metadata, dict):
         metadata = {}
 
-    label_by_name: dict[str, str] = {}
+    if global_label_map is None:
+        global_label_map = {}
+
+    local_label_by_name: dict[str, str] = {}
     node_writes = 0
     relation_writes = 0
 
@@ -180,7 +235,7 @@ def write_extraction(extraction: Mapping[str, Any]) -> dict[str, int]:
                 continue
 
             _upsert_node(session, label=label, name=name, metadata=metadata)
-            label_by_name[name] = label
+            local_label_by_name[name] = label
             node_writes += 1
 
         for relation in relations:
@@ -192,24 +247,30 @@ def write_extraction(extraction: Mapping[str, Any]) -> dict[str, int]:
             if not from_name or not to_name:
                 continue
 
-            from_label = label_by_name.get(from_name, "Entity")
-            to_label = label_by_name.get(to_name, "Entity")
             rel_type = _normalize_rel_type(relation.get("rel"))
+            from_labels = _resolve_labels(from_name, local_label_by_name, global_label_map)
+            to_labels = _resolve_labels(to_name, local_label_by_name, global_label_map)
 
-            # Ensure endpoints exist, even when relation references entities
-            # that were not extracted in the entities list.
-            _upsert_node(session, label=from_label, name=from_name, metadata=metadata)
-            _upsert_node(session, label=to_label, name=to_name, metadata=metadata)
-            _upsert_relation(
-                session,
-                from_name=from_name,
-                from_label=from_label,
-                rel_type=rel_type,
-                to_name=to_name,
-                to_label=to_label,
-                metadata=metadata,
-            )
-            relation_writes += 1
+            # Ensure endpoint nodes exist before writing relations.
+            # Only create Entity nodes as a last resort (when global map had no match).
+            for fl in from_labels:
+                _upsert_node(session, label=fl, name=from_name, metadata=metadata)
+            for tl in to_labels:
+                _upsert_node(session, label=tl, name=to_name, metadata=metadata)
+
+            # Fan out: one relation per (from_label × to_label) combination.
+            for fl in from_labels:
+                for tl in to_labels:
+                    _upsert_relation(
+                        session,
+                        from_name=from_name,
+                        from_label=fl,
+                        rel_type=rel_type,
+                        to_name=to_name,
+                        to_label=tl,
+                        metadata=metadata,
+                    )
+                    relation_writes += 1
 
     return {"nodes": node_writes, "relations": relation_writes}
 
@@ -218,13 +279,16 @@ def write_extractions(extractions: Sequence[Mapping[str, Any]]) -> dict[str, int
     """Write many extraction records into Neo4j and return aggregate stats."""
     totals = {"records": 0, "nodes": 0, "relations": 0, "failed": 0}
 
+    global_label_map = _build_global_label_map(extractions)
+    logger.info("Global label map built: %d unique names", len(global_label_map))
+
     for extraction in extractions:
         if not isinstance(extraction, Mapping):
             totals["failed"] += 1
             continue
 
         try:
-            stats = write_extraction(extraction)
+            stats = write_extraction(extraction, global_label_map=global_label_map)
             totals["records"] += 1
             totals["nodes"] += stats["nodes"]
             totals["relations"] += stats["relations"]

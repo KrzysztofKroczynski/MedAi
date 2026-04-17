@@ -12,7 +12,7 @@ import logging
 from pathlib import Path
 
 from graph.graph_builder import write_extractions
-from graph.schema import apply
+from graph.schema import apply, reset
 
 if __name__ == "__main__":
     Path("logs").mkdir(exist_ok=True)
@@ -45,6 +45,9 @@ if __name__ == "__main__":
         raise SystemExit(1)
 
     logger.info("Loaded %d extraction results from cache", len(extractions))
+
+    reset()
+    logger.info("Graph reset")
 
     apply()
     logger.info("Schema applied")
