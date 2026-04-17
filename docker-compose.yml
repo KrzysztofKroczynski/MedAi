@@ -62,7 +62,7 @@ services:
     volumes:
       - ./data/processed:/app/data/processed:ro
       - ./logs:/app/logs
-    command: ["sh", "-c", "python graph/schema.py && python seed.py"]
+    command: ["python", "seed.py"]
     profiles:
       - seed   # docker compose --profile seed up
       - full   # docker compose --profile full up  (waits for ingest to finish)

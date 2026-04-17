@@ -184,10 +184,23 @@ def extract_from_chunk(document: Document, client: Any | None = None) -> dict[st
         try:
             extraction = _parse_extraction_json(response_text)
         except Exception as exc:
-            logger.warning("Skipping chunk %s due to extraction error: %s", chunk_id, exc)
-            logger.debug("Raw LLM response (first 500 chars): %s", response_text[:500])
-            logger.debug("Chunk metadata=%s", metadata)
-            return None
+            logger.warning("Chunk %s returned invalid JSON, retrying with error feedback: %s", chunk_id, exc)
+            retry_prompt = (
+                f"{prompt}\n\n"
+                f"Your previous response was not valid JSON. Error: {exc}\n"
+                f"Previous response: {response_text[:500]}\n\n"
+                f"Return ONLY valid JSON matching the schema. No markdown, no explanation."
+            )
+            try:
+                retry_response = llm.invoke(retry_prompt)
+                retry_text = _response_to_text(retry_response)
+                extraction = _parse_extraction_json(retry_text)
+                logger.info("Chunk %s retry succeeded", chunk_id)
+            except Exception as retry_exc:
+                logger.warning("Skipping chunk %s after retry failed: %s", chunk_id, retry_exc)
+                logger.debug("Raw LLM response (first 500 chars): %s", response_text[:500])
+                logger.debug("Chunk metadata=%s", metadata)
+                return None
 
         return {
             "text": chunk_text,

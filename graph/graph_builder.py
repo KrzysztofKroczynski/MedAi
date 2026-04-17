@@ -82,11 +82,23 @@ def _normalize_rel_type(raw_rel: Any) -> str:
     return rel
 
 
-def _normalize_name(raw_name: Any) -> str | None:
+def _normalize_name(raw_name: Any, label: str = "") -> str | None:
     if not isinstance(raw_name, str):
         return None
     name = raw_name.strip()
-    return name or None
+    if not name:
+        return None
+    # For Drug and ActiveIngredient: strip trailing dosage/formulation noise
+    # e.g. "Ibuprofen 400mg Tablets" → "Ibuprofen", "Amoxicillin 500 mg capsules" → "Amoxicillin"
+    if label in ("Drug", "ActiveIngredient"):
+        name = re.sub(
+            r"\s+\d[\d.,]*\s*(mg|mcg|g|ml|iu|mmol|%|unit).*$",
+            "",
+            name,
+            flags=re.IGNORECASE,
+        ).strip()
+    # Title-case so "ibuprofen", "IBUPROFEN", "Ibuprofen" all merge to "Ibuprofen"
+    return name.title() if name else None
 
 
 def _upsert_node(session: Any, label: str, name: str, metadata: Mapping[str, Any]) -> None:
@@ -162,10 +174,10 @@ def write_extraction(extraction: Mapping[str, Any]) -> dict[str, int]:
         for entity in entities:
             if not isinstance(entity, Mapping):
                 continue
-            name = _normalize_name(entity.get("name"))
+            label = _normalize_label(entity.get("type"))
+            name = _normalize_name(entity.get("name"), label=label)
             if not name:
                 continue
-            label = _normalize_label(entity.get("type"))
 
             _upsert_node(session, label=label, name=name, metadata=metadata)
             label_by_name[name] = label

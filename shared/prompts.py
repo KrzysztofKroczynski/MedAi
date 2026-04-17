@@ -48,9 +48,17 @@ Output JSON schema:
   ]
 }
 
-Rules:
-- Use exact text spans when possible.
-- Keep names concise and normalized.
+Naming rules — follow these exactly:
+- Drug names: always use the INN (International Nonproprietary Name) generic name only.
+  NEVER include brand names, dosage, formulation, or route in the Drug name.
+  Correct: "Ibuprofen" — Wrong: "Advil", "Ibuprofen 400mg", "Ibuprofen Tablets"
+- If a brand name appears (e.g. "Advil", "Nurofen"), map it to its INN generic name.
+- Dose/strength/formulation belongs in a Dose entity, not in the Drug name.
+  Example: "Ibuprofen 400mg tablets" → Drug: "Ibuprofen" + Dose: "400mg tablet" + relation HAS_DOSE
+- ActiveIngredient names: INN generic name only, same rules as Drug.
+- All other entity names (Indication, Contraindication, etc.): concise, lowercase, no trailing punctuation.
+
+General rules:
 - If nothing is found, return: {"entities": [], "relations": []}
 - Ensure strict JSON validity.
 
