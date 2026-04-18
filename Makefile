@@ -2,7 +2,7 @@
 
 seed:
 	-docker compose down --remove-orphans
-	docker compose --profile seed up --force-recreate
+	docker compose --profile seed up --build --force-recreate --exit-code-from seed
 
 full:
 	-docker compose down --remove-orphans

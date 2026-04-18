@@ -21,11 +21,7 @@ logger = logging.getLogger(__name__)
 _CONSTRAINTS = [
     ("drug_name_unique",              "Drug",             "name"),
     ("active_ingredient_name_unique", "ActiveIngredient", "name"),
-    ("indication_name_unique",        "Indication",       "name"),
-    ("contraindication_name_unique",  "Contraindication", "name"),
-    ("adverse_effect_name_unique",    "AdverseEffect",    "name"),
-    ("dose_name_unique",              "Dose",             "name"),
-    ("patient_group_name_unique",     "PatientGroup",     "name"),
+    ("clinical_concept_name_unique",  "ClinicalConcept",  "name"),
 ]
 
 _FULLTEXT_INDEX = "drugNameFulltext"

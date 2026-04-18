@@ -34,6 +34,10 @@ _ALLOWED_LABELS = {
     "Entity",
 }
 
+# These labels get their own MERGE key (label + name).
+# Everything else merges under ClinicalConcept and gets the specific label added on top.
+_ANCHOR_LABELS = {"Drug", "ActiveIngredient"}
+
 _LABEL_ALIASES = {
     "drug": "Drug",
     "activeingredient": "ActiveIngredient",
@@ -97,19 +101,45 @@ def _normalize_name(raw_name: Any, label: str = "") -> str | None:
             name,
             flags=re.IGNORECASE,
         ).strip()
+    # Dose names must be "DrugName:dose detail".
+    # Title-case only the drug prefix so the detail is not mangled.
+    if label == "Dose":
+        if ":" not in name:
+            logger.warning("Dose entity missing drug prefix (expected 'DrugName:detail'): %r — dropping", name)
+            return None
+        prefix, _, detail = name.partition(":")
+        if not prefix.strip():
+            logger.warning("Dose entity has empty drug prefix: %r — dropping", name)
+            return None
+        return f"{prefix.strip().title()}:{detail.strip().lower()}"
+
     # Title-case so "ibuprofen", "IBUPROFEN", "Ibuprofen" all merge to "Ibuprofen"
     return name.title() if name else None
 
 
 def _upsert_node(session: Any, label: str, name: str, metadata: Mapping[str, Any]) -> None:
-    cypher = f"""
-    MERGE (n:{label} {{name: $name}})
-    ON CREATE SET n.created_at = datetime()
-    SET n.updated_at = datetime(),
-        n.last_source_file = $source_file,
-        n.last_page_number = $page_number,
-        n.last_doc_type = $doc_type
-    """
+    if label in _ANCHOR_LABELS:
+        # Drug and ActiveIngredient: merge by (label, name) — kept separate intentionally.
+        cypher = f"""
+        MERGE (n:{label} {{name: $name}})
+        ON CREATE SET n.created_at = datetime(),
+                      n.source_file = $source_file,
+                      n.page_number = $page_number,
+                      n.doc_type = $doc_type
+        ON MATCH SET  n.updated_at = datetime()
+        """
+    else:
+        # All clinical concept labels: merge by name under ClinicalConcept base label,
+        # then add the specific label so one node can accumulate multiple roles.
+        cypher = f"""
+        MERGE (n:ClinicalConcept {{name: $name}})
+        ON CREATE SET n.created_at = datetime(),
+                      n.source_file = $source_file,
+                      n.page_number = $page_number,
+                      n.doc_type = $doc_type
+        ON MATCH SET  n.updated_at = datetime()
+        SET n:{label}
+        """
     session.run(
         cypher,
         name=name,
@@ -128,17 +158,28 @@ def _upsert_relation(
     to_label: str,
     metadata: Mapping[str, Any],
 ) -> None:
+    source_file = metadata.get("source_file") or ""
+    page_number = metadata.get("page_number")
+    citation = f"{source_file}|{page_number}" if source_file else None
+
     cypher = f"""
     MATCH (a {{name: $from_name}})
     WHERE $from_label IN labels(a)
     MATCH (b {{name: $to_name}})
     WHERE $to_label IN labels(b)
     MERGE (a)-[r:{rel_type}]->(b)
-    ON CREATE SET r.created_at = datetime()
-    SET r.updated_at = datetime(),
-        r.last_source_file = $source_file,
-        r.last_page_number = $page_number,
-        r.last_doc_type = $doc_type
+    ON CREATE SET r.created_at = datetime(),
+                  r.doc_type = $doc_type,
+                  r.source_citations = CASE
+                    WHEN $citation IS NOT NULL THEN [$citation]
+                    ELSE []
+                  END
+    ON MATCH SET  r.updated_at = datetime(),
+                  r.source_citations = CASE
+                    WHEN $citation IS NULL                          THEN coalesce(r.source_citations, [])
+                    WHEN $citation IN coalesce(r.source_citations, []) THEN coalesce(r.source_citations, [])
+                    ELSE coalesce(r.source_citations, []) + $citation
+                  END
     """
     session.run(
         cypher,
@@ -146,8 +187,7 @@ def _upsert_relation(
         from_label=from_label,
         to_name=to_name,
         to_label=to_label,
-        source_file=metadata.get("source_file"),
-        page_number=metadata.get("page_number"),
+        citation=citation,
         doc_type=metadata.get("doc_type"),
     )
 
@@ -185,9 +225,9 @@ def _resolve_labels(
 
     Priority:
     1. Local chunk map (most specific — from this extraction's entity list).
-    2. Global map built from all extractions (may return multiple labels,
-       e.g. both Drug and ActiveIngredient when the same name appears as both
-       across the corpus).
+    2. Global map built from all extractions. When a name appears as both Drug
+       and ActiveIngredient, Drug wins — avoids fan-out that creates redundant
+       edges and fragments citation lists.
     3. Fall back to Entity only when nothing is found.
     """
     local = local_label_by_name.get(name)
@@ -196,7 +236,11 @@ def _resolve_labels(
 
     global_labels = global_label_map.get(name)
     if global_labels:
-        return sorted(global_labels)  # sorted for determinism
+        # Prefer Drug over ActiveIngredient when both are present for the same name.
+        if "Drug" in global_labels and "ActiveIngredient" in global_labels:
+            resolved = global_labels - {"ActiveIngredient"}
+            return sorted(resolved)
+        return sorted(global_labels)
 
     return ["Entity"]
 

@@ -25,8 +25,9 @@ System buduje graf wiedzy z ulotek PDF, gdzie węzły to leki, substancje, wskaz
 ```mermaid
 flowchart LR
     PDF[("Ulotki PDF")] --> LOADER["PDF Loader"]
-    LOADER --> CHUNKER["Chunker"]
-    CHUNKER --> EXTRACT["Entity Extractor\nGPT-4o"]
+    LOADER --> ANNOT["Section Annotator"]
+    ANNOT --> CHUNKER["Chunker"]
+    CHUNKER --> EXTRACT["Entity Extractor\n+ Relation Validator"]
     EXTRACT --> NEO4J[("Neo4j\nGraf wiedzy")]
 ```
 
@@ -44,12 +45,13 @@ flowchart LR
 
 | Komponent | Opis | Technologia |
 |---|---|---|
-| PDF Loader | Wczytywanie ulotek | LangChain PyPDFLoader |
-| Chunker | Podział tekstu na fragmenty | RecursiveCharacterTextSplitter |
-| Entity Extractor | Ekstrakcja encji i relacji z tekstu | GPT-4o |
-| Graf wiedzy | Encje i relacje farmaceutyczne | Neo4j |
+| PDF Loader | Wczytywanie ulotek; metadane: source_file, page_number, doc_type | LangChain PyPDFLoader |
+| Section Annotator | Wykrywa typ sekcji każdej strony (wskazania, dawkowanie, działania niepożądane itp.) i propaguje go do kolejnych stron | regex, earliest-match-by-position |
+| Chunker | Podział tekstu na fragmenty z zachowaniem sekcji i metadanych | RecursiveCharacterTextSplitter |
+| Entity Extractor | Ekstrakcja encji i relacji z tekstu; walidacja typów relacji z automatyczną korektą; obsługa obcinania odpowiedzi przez podział chunka | GPT-4o / DeepSeek |
+| Graf wiedzy | Encje i relacje farmaceutyczne; ClinicalConcept jako wspólny węzeł bazowy dla encji klinicznych | Neo4j |
 | GraphRAG | Wyszukiwanie przez graf | LangChain + Neo4j |
-| Interfejs | Interfejs użytkownika | Streamlit lub CLI |
+| Interfejs | Interfejs użytkownika | Streamlit |
 
 ---
 
@@ -355,7 +357,7 @@ Kryterium sukcesu: odpowiedź nie zawiera żadnych wymyślonych informacji; komu
 # 9. Ograniczenia systemu (Limitations)
 
 **Jakość ekstrakcji encji**
-LLM może niepoprawnie wyekstrahować encje lub relacje z PDF — szczególnie z tabel i list. Wpływ: niekompletny lub błędny graf, gorsza jakość odpowiedzi GraphRAG.
+LLM może niepoprawnie wyekstrahować encje lub relacje z PDF — szczególnie z tabel i list. Mitygacja: każda strona jest najpierw oznaczana typem sekcji (wskazania, dawkowanie, działania niepożądane itp.), co kieruje modelem przy przypisywaniu typów encji. Relacje z błędnymi typami węzłów są wykrywane automatycznie i odsyłane do modelu z prośbą o korektę. Wpływ residualny: niekompletny graf dla dokumentów o niskiej jakości OCR.
 
 **Halucynacje LLM**
 Model może wyjść poza kontekst i dodać informacje spoza dokumentów. Mitygacja: prompt instruuje model żeby odpowiadał tylko na podstawie dostarczonego kontekstu.

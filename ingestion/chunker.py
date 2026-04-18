@@ -10,6 +10,7 @@ from typing import Sequence
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from langchain_core.documents import Document
+from ingestion.section_splitter import annotate_pages
 
 
 
@@ -120,7 +121,6 @@ def chunk_single_document(
     raw_chunks = splitter.split_text(text)
 
     chunk_docs: list[Document] = []
-    total_chunks = len(raw_chunks)
 
     for chunk_index, chunk_text in enumerate(raw_chunks, start=1):
         cleaned_chunk = chunk_text.strip()
@@ -130,7 +130,6 @@ def chunk_single_document(
         metadata = {
             **base_metadata,
             "chunk_index": chunk_index,
-            "chunk_count": total_chunks,
             "chunk_id": _make_chunk_id(base_metadata, chunk_index),
         }
 
@@ -140,6 +139,10 @@ def chunk_single_document(
                 metadata=metadata,
             )
         )
+
+    # Backfill chunk_count now that empty chunks have been filtered.
+    for doc in chunk_docs:
+        doc.metadata["chunk_count"] = len(chunk_docs)
 
     logger.info(
         "Chunked document source_file=%s page_number=%s chunks=%s",
@@ -182,6 +185,18 @@ def chunk_documents(
         chunk_size_tokens,
         chunk_overlap_tokens,
     )
+
+    # Group pages by source_file so propagation resets between PDFs.
+    # Without grouping, last_known bleeds from the final section of one PDF
+    # into the opening unknown pages of the next PDF.
+    groups: dict[str, list[Document]] = {}
+    for doc in documents:
+        key = doc.metadata.get("source_file", "")
+        groups.setdefault(key, []).append(doc)
+
+    for source_file, group in groups.items():
+        annotate_pages(group, propagate=True)
+        logger.debug("Annotated %d pages for %s", len(group), source_file)
 
     for document in documents:
         all_chunks.extend(chunk_single_document(document=document, splitter=splitter))
