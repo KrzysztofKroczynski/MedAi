@@ -297,6 +297,8 @@ def write_extractions(
             local_label_by_name: dict[str, str] = {}
 
             # --- entities ---
+            # Only record label metadata here; nodes are queued only when they
+            # appear as a relation endpoint so isolated entities are never written.
             for entity in entities:
                 if not isinstance(entity, Mapping):
                     continue
@@ -305,15 +307,10 @@ def write_extractions(
                 name = _normalize_name(raw, label=label)
                 if not name:
                     continue
-                _queue_node(label, name, metadata)
                 local_label_by_name[name] = label
-                # Basic-normalized alias: relation endpoints are looked up by
-                # basic-normalized name, so they must be able to find the label
-                # even when the label-aware form differs (e.g. Dose names).
                 basic = _normalize_name(raw)
                 if basic and basic != name:
                     local_label_by_name.setdefault(basic, label)
-                totals["nodes"] += 1
 
             # --- relations ---
             source_file = metadata.get("source_file") or ""
@@ -374,6 +371,8 @@ def write_extractions(
         except Exception:
             totals["failed"] += 1
             logger.exception("Failed to process extraction record")
+
+    totals["nodes"] = len(seen_nodes)
 
     # --- single session, batch writes ---
     driver = get_driver()
