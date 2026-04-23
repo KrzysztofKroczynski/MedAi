@@ -7,8 +7,9 @@ from the source PDF page, and formats attribution from source_citations.
 import os
 import re
 from pathlib import Path
+from urllib.parse import urlparse
 
-from agent.state import AgentState, CitationItem, EvidenceItem, QueryPlan
+from agent.state import AgentState, CitationItem, EvidenceItem, QueryPlan, SourceLink
 
 # Resolved at runtime so it works both locally and in Docker (/app/data/pdfs)
 _PDFS_DIR = Path(os.getenv("PDFS_DIR", "data/pdfs"))
@@ -89,6 +90,51 @@ def _build_attribution(source_citations: list[str], entity: str) -> str:
     return " / ".join(parts)
 
 
+def _source_links_from_citations(source_citations: list[str]) -> list[SourceLink]:
+    """Build structured source links from raw citation strings."""
+    links: list[SourceLink] = []
+    seen: set[str] = set()
+
+    for source in source_citations:
+        if not source or source in seen:
+            continue
+        seen.add(source)
+
+        if "|" in source:
+            file_name, page_str = source.split("|", 1)
+            page_number = None
+            try:
+                page_number = int(page_str)
+            except ValueError:
+                page_number = None
+
+            label = f"{file_name}, page {page_number}" if page_number else file_name
+            links.append(
+                SourceLink(
+                    label=label,
+                    source_type="pdf",
+                    file=file_name,
+                    page=page_number,
+                    url="",
+                )
+            )
+            continue
+
+        if source.startswith("http://") or source.startswith("https://"):
+            parsed = urlparse(source)
+            links.append(
+                SourceLink(
+                    label=parsed.netloc or source,
+                    source_type="web",
+                    file="",
+                    page=None,
+                    url=source,
+                )
+            )
+
+    return links
+
+
 def _cite_one(ev: EvidenceItem, plan_item: QueryPlan, user_message: str) -> CitationItem:
     """Build a single CitationItem from one evidence item."""
     if not ev["content"]:
@@ -99,6 +145,7 @@ def _cite_one(ev: EvidenceItem, plan_item: QueryPlan, user_message: str) -> Cita
                             f"{plan_item['intent'].replace('_', ' ')}.",
             verbatim="",
             attribution="",
+            source_links=[],
             source_type=ev["source_type"],
             found=False,
         )
@@ -106,6 +153,7 @@ def _cite_one(ev: EvidenceItem, plan_item: QueryPlan, user_message: str) -> Cita
     # --- Web result ---
     if ev["source_type"] == "web":
         snippet = re.sub(r"\s+", " ", ev["content"][:500]).strip()
+        source_links = _source_links_from_citations(ev["source_citations"])
         attribution = ev["source_citations"][0] if ev["source_citations"] else "web search"
         return CitationItem(
             query_id=ev["query_id"],
@@ -113,6 +161,7 @@ def _cite_one(ev: EvidenceItem, plan_item: QueryPlan, user_message: str) -> Cita
             answer_fragment=snippet,
             verbatim=snippet[:200],
             attribution=attribution,
+            source_links=source_links,
             source_type="web",
             found=True,
         )
@@ -126,6 +175,7 @@ def _cite_one(ev: EvidenceItem, plan_item: QueryPlan, user_message: str) -> Cita
                             f"{plan_item['intent'].replace('_', ' ')}.",
             verbatim="",
             attribution="",
+            source_links=[],
             source_type="neo4j",
             found=False,
         )
@@ -136,6 +186,7 @@ def _cite_one(ev: EvidenceItem, plan_item: QueryPlan, user_message: str) -> Cita
 
     # 2. Build attribution (prefer entity-matching source files)
     attribution = _build_attribution(ev["source_citations"], plan_item["entity"])
+    source_links = _source_links_from_citations(ev["source_citations"])
 
     # 3. Fetch verbatim snippet from the primary source PDF
     pdf_snippet = ""
@@ -162,6 +213,7 @@ def _cite_one(ev: EvidenceItem, plan_item: QueryPlan, user_message: str) -> Cita
         answer_fragment=answer_fragment,
         verbatim=verbatim,
         attribution=attribution,
+        source_links=source_links,
         source_type="neo4j",
         found=bool(verbatim and attribution),
     )
