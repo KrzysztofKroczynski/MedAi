@@ -72,14 +72,21 @@ def _relevant_node_names(
     return (best[:5] if best else node_names[:5])
 
 
+def _top_citations(
+    source_citations: list[str], entity: str, max_links: int = 5
+) -> list[str]:
+    """Return up to max_links citations, preferring files that match the entity name."""
+    entity_lower = entity.lower().replace(" ", "_")
+    preferred = [s for s in source_citations if entity_lower in s.lower()]
+    others = [s for s in source_citations if s not in preferred]
+    return (preferred + others)[:max_links]
+
+
 def _build_attribution(source_citations: list[str], entity: str) -> str:
     """Format up to 3 attribution strings; prefer files that match the entity name."""
     if not source_citations:
         return ""
-    entity_lower = entity.lower().replace(" ", "_")
-    preferred = [s for s in source_citations if entity_lower in s.lower()]
-    others = [s for s in source_citations if s not in preferred]
-    ordered = (preferred + others)[:3]
+    ordered = _top_citations(source_citations, entity, max_links=3)
     parts = []
     for s in ordered:
         if "|" in s:
@@ -184,9 +191,10 @@ def _cite_one(ev: EvidenceItem, plan_item: QueryPlan, user_message: str) -> Cita
     relevant = _relevant_node_names(ev["node_names"], user_message, plan_item["entity"])
     verbatim = " / ".join(relevant)
 
-    # 2. Build attribution (prefer entity-matching source files)
+    # 2. Build attribution (prefer entity-matching source files, cap at 5)
+    top_cits = _top_citations(ev["source_citations"], plan_item["entity"], max_links=5)
     attribution = _build_attribution(ev["source_citations"], plan_item["entity"])
-    source_links = _source_links_from_citations(ev["source_citations"])
+    source_links = _source_links_from_citations(top_cits)
 
     # 3. Fetch verbatim snippet from the primary source PDF
     pdf_snippet = ""

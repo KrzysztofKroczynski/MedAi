@@ -37,18 +37,22 @@ Evaluate using these criteria:
 
   NEED_MORE — continue querying when ANY are true:
     1. One or more query_ids have empty content (no results found yet).
-    2. A prior result surfaced a related entity that the question requires
-       but has not been queried.
-    3. A Neo4j query returned empty and a web search for the same intent has
-       not yet been attempted.
-    4. The source was web and the snippet is too short (<100 chars) to be
+    2. A prior result (Neo4j OR web) mentions a drug name or clinical entity
+       that is directly relevant to answering the user's question, and that
+       entity has not yet been queried in Neo4j — add a new Neo4j query for it.
+    3. A Neo4j result was thin (only 1-2 facts) and a web search for the same
+       intent has not yet been attempted — add a web query for the same item.
+    4. A web result mentions a drug or active ingredient that is likely in the
+       Neo4j database (a known pharmaceutical, not a brand or supplement) and
+       has not been queried there yet — add a Neo4j query to cross-reference.
+    5. The source was web and the snippet is too short (<100 chars) to be
        useful — retry with a more specific query.
 
   Anti-patterns — never do these:
     - Do not re-query a query_id that already has good evidence.
     - Do not query the same (entity, intent) pair more than twice total.
-    - Do not add new query_ids for facts that were not part of the original
-      question.
+    - Do not add new query_ids for tangential facts unrelated to the user's
+      question (only follow up entities that directly answer what was asked).
     - Do not manufacture sufficiency — if evidence is weak, say NEED_MORE.
 
 If SUFFICIENT, respond with exactly:

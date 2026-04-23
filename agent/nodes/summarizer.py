@@ -19,9 +19,19 @@ Citations (structured, pre-verified):
 {citations}
 
 Each citation contains:
+  - source_type: "neo4j" (extracted from a licensed PIL/SmPC PDF) or "web"
   - answer_fragment: verbatim text extracted from the source document
   - verbatim: the specific facts most relevant to the question
   - attribution: the source document and page
+
+Source priority rules — follow these strictly:
+  1. Neo4j citations (source_type "neo4j") come from licensed pharmaceutical
+     documents. Always prefer them over web citations for the same query_id.
+  2. Use a web citation only when no neo4j citation covers the same fact, or
+     to add a detail that the neo4j citation does not contain.
+  3. Never let a web citation override or contradict a neo4j citation.
+  4. If neo4j and web citations disagree, state the neo4j finding and note
+     that web sources differ.
 
 Format rules:
   - Write 2-4 sentences directly answering the question.
