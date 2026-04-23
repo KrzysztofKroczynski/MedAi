@@ -6,10 +6,12 @@ import asyncio
 import concurrent.futures
 import logging
 import os
+import shutil
 import sys
 import uuid
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import streamlit as st
 
@@ -30,6 +32,32 @@ DEFAULT_DISCLAIMER = (
 )
 
 PROJECT_ROOT = _ROOT
+DATA_PDFS_DIR = PROJECT_ROOT / "data" / "pdfs"
+STATIC_PDFS_DIR = _HERE / "static" / "pdfs"
+
+
+def _sync_static_pdfs() -> None:
+    """Mirror data/pdfs -> static/pdfs for clickable source links in Streamlit."""
+    if not DATA_PDFS_DIR.exists():
+        return
+
+    STATIC_PDFS_DIR.mkdir(parents=True, exist_ok=True)
+
+    for pdf_file in DATA_PDFS_DIR.rglob("*.pdf"):
+        target = STATIC_PDFS_DIR / pdf_file.name
+        should_copy = (
+            not target.exists()
+            or pdf_file.stat().st_size != target.stat().st_size
+            or int(pdf_file.stat().st_mtime) != int(target.stat().st_mtime)
+        )
+        if should_copy:
+            shutil.copy2(pdf_file, target)
+
+
+def _pdf_source_url(file_name: str, page_number: int | None = None) -> str:
+    """Build Streamlit static URL for a PDF file, optionally jumping to page."""
+    base = f"/app/static/pdfs/{quote(file_name, safe='')}"
+    return f"{base}#page={page_number}" if page_number else base
 
 
 def _run_agent_pipeline(user_input: str, session_id: str) -> dict[str, Any]:
@@ -89,12 +117,30 @@ def _render_citations(citations: list[dict[str, Any]]) -> None:
     """Render structured CitationItem list returned by the agent."""
     if not citations:
         return
+
     for c in citations:
         if c.get("found"):
-            st.markdown(
-                f"**{c.get('intent', '')}** — {c.get('verbatim', '')}  \n"
-                f"_{c.get('attribution', '')}_"
-            )
+            st.markdown(f"**{c.get('intent', '')}** — {c.get('verbatim', '')}")
+
+            source_links = c.get("source_links", [])
+            if source_links:
+                for link in source_links:
+                    if link.get("source_type") == "pdf" and link.get("file"):
+                        file_name = str(link.get("file", ""))
+                        page_number = link.get("page")
+                        label = link.get("label") or (
+                            f"{file_name}, page {page_number}" if page_number else file_name
+                        )
+
+                        if (STATIC_PDFS_DIR / file_name).exists():
+                            st.markdown(f"- [{label}]({_pdf_source_url(file_name, page_number)})")
+                        else:
+                            st.markdown(f"- {label} _(PDF file not available)_")
+                    elif link.get("source_type") == "web" and link.get("url"):
+                        label = link.get("label") or link.get("url")
+                        st.markdown(f"- [{label}]({link.get('url')})")
+            elif c.get("attribution"):
+                st.markdown(f"_{c.get('attribution')}_")
 
 
 def _render_assistant_message(payload: dict[str, Any]) -> None:
@@ -113,6 +159,8 @@ def _render_assistant_message(payload: dict[str, Any]) -> None:
 
 
 def main() -> None:
+    _sync_static_pdfs()
+
     st.set_page_config(page_title="MedGraph AI", page_icon="💊", layout="centered")
     st.title("💊 MedGraph AI")
     st.write("Ask medication questions in natural language.")

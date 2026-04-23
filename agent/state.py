@@ -24,12 +24,21 @@ class EvidenceItem(TypedDict):
     sufficient: bool       # set by LLM decision node
 
 
+class SourceLink(TypedDict):
+    label: str             # "filename.pdf, page 8" or URL host text
+    source_type: str       # "pdf" | "web"
+    file: str              # source PDF filename for pdf links
+    page: Optional[int]    # 1-based page for pdf links
+    url: str               # external URL for web links
+
+
 class CitationItem(TypedDict):
     query_id: str
     intent: str
     answer_fragment: str   # the fact being cited
     verbatim: str          # exact node name or relationship property value
     attribution: str       # "filename, page N" or URL
+    source_links: list[SourceLink]
     source_type: str       # "neo4j" | "web"
     found: bool
 

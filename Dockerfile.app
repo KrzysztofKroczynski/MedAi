@@ -9,6 +9,7 @@ COPY rag/ ./rag/
 COPY graph/ ./graph/
 COPY shared/ ./shared/
 COPY app/ ./app/
+COPY .streamlit/ ./.streamlit/
 
 EXPOSE 8501
 
