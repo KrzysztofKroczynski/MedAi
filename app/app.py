@@ -1,20 +1,25 @@
-# Streamlit chat interface for MedGraph AI.
-# Renders a chat window where the user types medication questions in natural language.
-# On submit: calls rag/retriever.py → rag/context.py → rag/qa.py pipeline.
-# Displays the answer, source citations (file + page), and medical disclaimer.
-# If qa.py returns a "no data" response, shows a styled warning instead of a normal answer.
-# Maintains conversation history in Streamlit session state for multi-turn context.
-# Does NOT allow the user to override the safety disclaimer.
-"""Streamlit chat UI for MedGraph AI."""
+"""Streamlit chat UI for MedGraph AI — multi-agent backend."""
 
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
 import logging
+import os
 import sys
+import uuid
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import streamlit as st
+
+# Ensure project root (parent of app/) is on sys.path so `agent` and `shared`
+# are importable regardless of working directory or how Streamlit loads the file.
+_HERE = Path(os.path.abspath(__file__)).parent          # .../MedAi/app
+_ROOT = _HERE.parent                                     # .../MedAi
+for _p in (_ROOT, _HERE):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
 
 logger = logging.getLogger(__name__)
@@ -24,106 +29,87 @@ DEFAULT_DISCLAIMER = (
     "does not replace professional medical advice, diagnosis, or treatment."
 )
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+PROJECT_ROOT = _ROOT
 
 
-def _resolve_callable(module: Any, candidates: list[str]) -> Callable:
-    """Resolve first available callable from candidate names."""
-    for name in candidates:
-        fn = getattr(module, name, None)
-        if callable(fn):
-            return fn
-    raise AttributeError(
-        f"No callable found in {module.__name__}. Tried: {', '.join(candidates)}"
-    )
-
-
-def _run_rag_pipeline(question: str) -> dict[str, Any]:
-    """Run retriever -> context assembler -> QA pipeline."""
+def _run_agent_pipeline(user_input: str, session_id: str) -> dict[str, Any]:
+    """Invoke the LangGraph multi-agent pipeline and return a result dict."""
     try:
-        from rag import context as context_module
-        from rag import qa as qa_module
-        from rag import retriever as retriever_module
+        from agent.graph import graph
+        from langchain_core.messages import HumanMessage
     except Exception as exc:
-        logger.warning("RAG modules unavailable, using UI-only fallback: %s", exc)
+        logger.exception("Agent graph unavailable")
         return {
             "answer": (
-                "RAG backend is not available yet, so I can’t query medication knowledge yet. "
-                "UI mode is active and this will work once rag modules are implemented."
+                f"Agent backend unavailable: {exc}\n\n"
+                "Run `pip install -r requirements.txt` and ensure the `agent/` "
+                "package is on the Python path."
             ),
             "citations": [],
-            "disclaimer": DEFAULT_DISCLAIMER,
             "no_data": True,
         }
 
-    retrieve_fn = _resolve_callable(
-        retriever_module,
-        ["retrieve", "retrieve_context", "run_retriever", "get_retrieval_rows"],
-    )
-    assemble_context_fn = _resolve_callable(
-        context_module,
-        ["assemble_context", "build_context", "format_context", "rows_to_context"],
-    )
-    qa_fn = _resolve_callable(
-        qa_module,
-        ["answer_question", "run_qa", "generate_answer", "qa"],
-    )
+    state = {
+        "messages": [HumanMessage(content=user_input)],
+        "session_id": session_id,
+        "session_context": {},  # checkpointer restores persisted context
+        "guardrail_label": "",
+        "query_plan": [],
+        "iteration": 0,
+        "evidence_buffer": [],
+        "llm_decision": "",
+        "next_query_plan": [],
+        "citations": [],
+        "final_answer": "",
+        "error": None,
+    }
+    config = {"configurable": {"thread_id": session_id}}
 
-    rows = retrieve_fn(question)
-    context_bundle = assemble_context_fn(rows)
-    qa_result = qa_fn(question, context_bundle)
+    # Run async graph in a dedicated thread so it gets a clean event loop,
+    # avoiding conflicts with Streamlit's own event loop.
+    def _run():
+        async def _ainvoke():
+            return await graph.ainvoke(state, config=config)
+        return asyncio.run(_ainvoke())
 
-    if not isinstance(qa_result, dict):
-        qa_result = {"answer": str(qa_result)}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        result = pool.submit(_run).result()
 
-    answer_text = str(qa_result.get("answer", "")).strip()
-    citations = qa_result.get("citations", context_bundle.get("citations", []))
-    disclaimer = str(qa_result.get("disclaimer") or DEFAULT_DISCLAIMER)
-
-    no_data_hint = str(answer_text).lower()
-    is_no_data = (
-        bool(qa_result.get("no_data"))
-        or "no data" in no_data_hint
-        or "insufficient context" in no_data_hint
-        or "cannot answer" in no_data_hint
-    )
+    answer = result.get("final_answer", "No answer generated.")
+    citations = result.get("citations", [])
 
     return {
-        "answer": answer_text or "No answer generated.",
-        "citations": citations if isinstance(citations, list) else [],
-        "disclaimer": disclaimer,
-        "no_data": is_no_data,
+        "answer": answer,
+        "citations": citations,
+        "no_data": not answer,
     }
 
 
 def _render_citations(citations: list[dict[str, Any]]) -> None:
+    """Render structured CitationItem list returned by the agent."""
     if not citations:
         return
-
-    st.markdown("**Sources:**")
-    for citation in citations:
-        file_name = citation.get("file") or citation.get("source_file") or "Unknown file"
-        page = citation.get("page") or citation.get("page_number") or "?"
-        st.markdown(f"- `{file_name}` (page {page})")
+    for c in citations:
+        if c.get("found"):
+            st.markdown(
+                f"**{c.get('intent', '')}** — {c.get('verbatim', '')}  \n"
+                f"_{c.get('attribution', '')}_"
+            )
 
 
 def _render_assistant_message(payload: dict[str, Any]) -> None:
     answer = str(payload.get("answer", "")).strip()
     citations = payload.get("citations", [])
-    disclaimer = str(payload.get("disclaimer") or DEFAULT_DISCLAIMER)
     is_no_data = bool(payload.get("no_data"))
 
-    if is_no_data:
-        st.warning(answer or "No data available to answer this question.")
+    if is_no_data and not answer:
+        st.warning("No data available to answer this question.")
     else:
         st.markdown(answer or "No answer generated.")
 
-    _render_citations(citations if isinstance(citations, list) else [])
-
-    st.markdown("---")
-    st.caption(disclaimer)
+    if citations:
+        with st.expander("Sources"):
+            _render_citations(citations if isinstance(citations, list) else [])
 
 
 def main() -> None:
@@ -131,10 +117,12 @@ def main() -> None:
     st.title("💊 MedGraph AI")
     st.write("Ask medication questions in natural language.")
 
+    if "session_id" not in st.session_state:
+        st.session_state["session_id"] = str(uuid.uuid4())
     if "messages" not in st.session_state:
-        st.session_state.messages = []
+        st.session_state["messages"] = []
 
-    for message in st.session_state.messages:
+    for message in st.session_state["messages"]:
         role = message.get("role", "assistant")
         with st.chat_message(role):
             if role == "assistant":
@@ -146,24 +134,24 @@ def main() -> None:
     if not user_question:
         return
 
-    st.session_state.messages.append({"role": "user", "content": user_question})
+    st.session_state["messages"].append({"role": "user", "content": user_question})
     with st.chat_message("user"):
         st.markdown(user_question)
 
     with st.chat_message("assistant"):
-        with st.spinner("Searching graph and generating answer..."):
+        with st.spinner("Searching medication documents..."):
             try:
-                assistant_payload = _run_rag_pipeline(user_question)
+                assistant_payload = _run_agent_pipeline(
+                    user_question, st.session_state["session_id"]
+                )
             except Exception as exc:
-                logger.exception("RAG pipeline failed")
+                logger.exception("Agent pipeline failed")
                 assistant_payload = {
-                    "role": "assistant",
                     "answer": (
                         "Sorry, something went wrong while processing your question. "
                         "Please try again."
                     ),
                     "citations": [],
-                    "disclaimer": DEFAULT_DISCLAIMER,
                     "no_data": True,
                     "error": str(exc),
                 }
@@ -171,7 +159,7 @@ def main() -> None:
         _render_assistant_message(assistant_payload)
 
     assistant_payload["role"] = "assistant"
-    st.session_state.messages.append(assistant_payload)
+    st.session_state["messages"].append(assistant_payload)
 
 
 if __name__ == "__main__":

@@ -31,14 +31,19 @@ flowchart LR
     EXTRACT --> NEO4J[("Neo4j\nGraf wiedzy")]
 ```
 
-**Faza 2 — odpowiadanie na pytania:**
+**Faza 2 — odpowiadanie na pytania (pipeline wieloagentowy):**
 
 ```mermaid
-flowchart LR
-    USER["Użytkownik"] --> GRAPH["GraphRAG"]
-    NEO4J[("Neo4j")] --> GRAPH
-    GRAPH --> LLM["GPT-4o"]
-    LLM --> ANS["Odpowiedź + źródło + disclaimer"]
+flowchart TD
+    USER["Pytanie użytkownika"] --> GR["guardrail_node\nMEDICAL / OFF_TOPIC / INJECTION"]
+    GR -->|MEDICAL| RO["router_node\ndekompozycja intencji → QueryPlan"]
+    GR -->|OFF_TOPIC / INJECTION| REJ["Odrzucenie"]
+    RO --> EX["query_executor_node\nasyncio.gather — Cypher + fallback web"]
+    EX --> DE["llm_decision_node\nSUFFICIENT / NEED_MORE"]
+    DE -->|NEED_MORE| EX
+    DE -->|SUFFICIENT| CI["citation_node\ndeterministyczny — filtrowanie node_names, tekst PDF"]
+    CI --> SU["summarizer_node\nsynetza odpowiedzi z cytowaniami inline"]
+    SU --> ANS["Odpowiedź + [Source: …] + disclaimer"]
 ```
 
 ## Komponenty systemu
@@ -46,12 +51,17 @@ flowchart LR
 | Komponent | Opis | Technologia |
 |---|---|---|
 | PDF Loader | Wczytywanie ulotek; metadane: source_file, page_number, doc_type | LangChain PyPDFLoader |
-| Section Annotator | Wykrywa typ sekcji każdej strony (wskazania, dawkowanie, działania niepożądane itp.) i propaguje go do kolejnych stron | regex, earliest-match-by-position |
+| Section Annotator | Wykrywa typ sekcji każdej strony i propaguje go do kolejnych stron | regex, earliest-match-by-position |
 | Chunker | Podział tekstu na fragmenty z zachowaniem sekcji i metadanych | RecursiveCharacterTextSplitter |
-| Entity Extractor | Ekstrakcja encji i relacji z tekstu; walidacja typów relacji z automatyczną korektą; obsługa obcinania odpowiedzi przez podział chunka | GPT-4o / DeepSeek |
-| Graf wiedzy | Encje i relacje farmaceutyczne; ClinicalConcept jako wspólny węzeł bazowy dla encji klinicznych | Neo4j |
-| GraphRAG | Wyszukiwanie przez graf | LangChain + Neo4j |
-| Interfejs | Interfejs użytkownika | Streamlit |
+| Entity Extractor | Ekstrakcja encji i relacji z tekstu; walidacja typów relacji | GPT-4o / DeepSeek |
+| Graf wiedzy | Encje i relacje farmaceutyczne; ClinicalConcept jako wspólny węzeł bazowy | Neo4j |
+| Guardrail | Klasyfikacja wejścia: MEDICAL / OFF_TOPIC / INJECTION | LangGraph node + LLM |
+| Router | Dekompozycja pytania na QueryPlan (intencja + encja) z rozwiązywaniem zaimków | LangGraph node + LLM |
+| Executor | Równoległe zapytania Cypher; fallback na wyszukiwanie webowe | asyncio.gather, DuckDuckGo |
+| Decision | LLM decyduje: kontynuować czy zakończyć zbieranie dowodów | LangGraph node + LLM |
+| Citation | Deterministyczna ekstrakcja cytowań z node_names + tekst strony PDF | pypdf, keyword scoring |
+| Summarizer | Synteza odpowiedzi z cytowaniami inline [Source: …] | LangGraph node + LLM |
+| Interfejs | Interfejs użytkownika z rozwijalną sekcją Sources | Streamlit |
 
 ---
 
@@ -59,48 +69,53 @@ flowchart LR
 
 ## LLM
 
-- **Model**: GPT-4o przez OpenAI API
-- **Zastosowanie**: ekstrakcja encji z ulotek, odpowiadanie na pytania na podstawie pobranego kontekstu
+- **Model**: GPT-4o (OpenAI) lub DeepSeek-chat — konfigurowane przez `LLM_PROVIDER` w `.env`
+- **Zastosowanie w ingestion**: ekstrakcja encji i relacji z ulotek (`ENTITY_EXTRACTION_PROMPT`)
+- **Zastosowanie w agencie**: guardrail (klasyfikacja), router (dekompozycja intencji), decision (stop/continue), summarizer (synteza odpowiedzi)
+- **Citation node jest deterministyczny** — nie używa LLM; filtruje node_names i pobiera tekst ze stron PDF
 
 ## Graf wiedzy
 
-- **Baza**: Neo4j (lokalnie)
-- **Węzły**: Lek, Substancja czynna, Wskazanie, Przeciwwskazanie, Działanie niepożądane, Dawka, Grupa pacjentów
-- **Relacje**: `ZAWIERA`, `WSKAZANY_DLA`, `PRZECIWWSKAZANY_W`, `INTERAGUJE_Z`, `ALTERNATYWA_DLA`
-
-> _Wczesna wizualizacja struktury grafu — wersja poglądowa, może ulec zmianie._
+- **Baza**: Neo4j (Docker)
+- **Węzły**: `Drug`, `ActiveIngredient`, `Indication`, `Contraindication`, `AdverseEffect`, `Dose`, `PatientGroup` (wszystkie kliniczne dziedziczą etykietę `ClinicalConcept`)
+- **Relacje**: `CONTAINS`, `INDICATED_FOR`, `CONTRAINDICATED_IN`, `INTERACTS_WITH`, `ALTERNATIVE_FOR`, `HAS_DOSE`, `WARNS_FOR`
+- Każda relacja niesie `source_citations` (lista `"plik|strona"`)
 
 ```mermaid
 graph LR
-    DA(["Lek A"])
-    DB(["Lek B"])
-    S(["Substancja czynna"])
-    W(["Wskazanie"])
-    P(["Przeciwwskazanie"])
-    D(["Dawka"])
-    G(["Grupa pacjentów"])
+    DA(["Drug A"])
+    DB(["Drug B"])
+    S(["ActiveIngredient"])
+    W(["Indication"])
+    P(["Contraindication"])
+    D(["Dose"])
+    G(["PatientGroup"])
 
-    DA -->|ZAWIERA| S
-    DA -->|WSKAZANY_DLA| W
-    DA -->|PRZECIWWSKAZANY_W| P
-    DA -->|PRZECIWWSKAZANY_W| G
-    DA -->|MA_DAWKĘ| D
-    DA -->|INTERAGUJE_Z| DB
-    DA -->|ALTERNATYWA_DLA| DB
+    DA -->|CONTAINS| S
+    DA -->|INDICATED_FOR| W
+    DA -->|CONTRAINDICATED_IN| P
+    DA -->|CONTRAINDICATED_IN| G
+    DA -->|HAS_DOSE| D
+    DA -->|INTERACTS_WITH| DB
+    DA -->|ALTERNATIVE_FOR| DB
 ```
 
-## Workflow systemu
-
-> _Wczesna wizualizacja przepływu — wersja poglądowa, może ulec zmianie._
+## Pipeline agentowy
 
 ```mermaid
 flowchart TD
-    Q["Pytanie użytkownika"] --> GR["GraphRAG\nNeo4j"]
-    GR --> LLM["GPT-4o"]
-    LLM --> SC{"Czy jest źródło?"}
-    SC -->|tak| OK["Odpowiedź + cytowanie + disclaimer"]
-    SC -->|nie| ND["Brak danych — skonsultuj z farmaceutą"]
+    Q["Pytanie użytkownika"] --> GU["guardrail_node"]
+    GU -->|MEDICAL| RO["router_node\nQueryPlan"]
+    GU -->|OFF_TOPIC / INJECTION| REJ["Odrzucenie"]
+    RO --> EX["query_executor_node\nCypher + web fallback"]
+    EX --> DE["llm_decision_node"]
+    DE -->|NEED_MORE| EX
+    DE -->|SUFFICIENT| CI["citation_node\nPDF page text"]
+    CI --> SU["summarizer_node"]
+    SU --> OK["Odpowiedź + [Source: …] + disclaimer"]
 ```
+
+**Bezpieczeństwo zapytań**: wszystkie szablony Cypher używają parametrów `$entity`/`$secondary_entity` — dane użytkownika nigdy nie są interpolowane do treści zapytania.
 
 ---
 
@@ -257,100 +272,42 @@ Kroki:
 
 ---
 
-# 8. Scenariusze ewaluacji (Evaluation Scenarios)
+# 8. Ewaluacja (Evaluation)
 
-Sekcja definiuje w jaki sposób system będzie testowany i oceniany. Każdy scenariusz zawiera konkretne zadanie testowe, oczekiwane zachowanie systemu oraz kryteria sukcesu.
+System posiada zautomatyzowany harness ewaluacyjny (`evaluate.py`) obejmujący **47 unikalnych przypadków testowych** (49 wpisów — E-01 i E-02 uruchamiane dwukrotnie dla pokrycia).
 
----
+## Uruchomienie
 
-**E-01: Pytanie o wskazania**
+```bash
+# Wszystkie testy
+uv run python evaluate.py
 
-Wejście: "Na co stosuje się ibuprofen?"
+# Wybrane testy
+uv run python evaluate.py --filter E-09 E-45
 
-Oczekiwane zachowanie:
-- GraphRAG wyszukuje węzły Wskazanie powiązane z lekiem w Neo4j
-- system generuje odpowiedź opartą na danych z grafu
-- odpowiedź zawiera cytowanie dokumentu źródłowego i sugestię konsultacji z lekarzem
+# Wynik zapisywany do:
+logs/evaluation_report.md
+```
 
-Kryterium sukcesu: odpowiedź jest zgodna z ulotką, zawiera cytowanie i disclaimer
+## Kategorie testów
 
----
+| Kategoria | Liczba | Opis |
+|-----------|--------|------|
+| guardrail / off-topic | 3 | Pytania niezwiązane z lekami — powinny być odrzucone |
+| guardrail / injection | 1 | Próba wstrzyknięcia promptu — powinna być odrzucona |
+| contraindication | 5 | Zapytania o lek + przeciwwskazanie |
+| dosage | 4 | Dawkowanie dla dorosłych i dzieci |
+| drug interaction | 5 | Interakcje między parami leków |
+| adverse effects | 4 | Zapytania o działania niepożądane |
+| patient group | 3 | Zapytania dotyczące osób starszych, niewydolności wątroby, karmienia piersią |
+| alternative / substitution | 2 | Zapytania o zamienniki |
+| multi-hop / complex | 3 | Złożone zapytania wielolekowe |
+| neo4j-grounded | 14 | Celowane zapytania dla potwierdzonych krawędzi grafu |
+| no-data / unknown drug | 2 | Wymyślone nazwy leków — kontrola halucynacji |
 
-**E-02: Interakcja lek-lek**
+## Kryteria oceny
 
-Wejście: "Czy warfaryna i aspiryna mogą być stosowane razem?"
-
-Oczekiwane zachowanie:
-- GraphRAG identyfikuje krawędź INTERAGUJE_Z między oboma lekami w Neo4j
-- system opisuje ryzyko interakcji z cytowaniem źródła
-- odpowiedź zawiera sugestię konsultacji z lekarzem przed rozpoczęciem terapii
-
-Kryterium sukcesu: odpowiedź poprawnie identyfikuje interakcję, podaje źródło i nie zawiera informacji spoza dokumentów
-
----
-
-**E-03: Dawkowanie z uwzględnieniem parametrów pacjenta**
-
-Wejście: "Jaka jest dawka ibuprofenu dla dziecka w wieku 8 lat i wadze 30 kg?"
-
-Oczekiwane zachowanie:
-- GraphRAG przechodzi po węzłach Lek → Dawka → Grupa pacjentów w Neo4j
-- system zwraca dawkę dopasowaną do podanych parametrów
-- odpowiedź zawiera cytowanie i sugestię konsultacji z lekarzem przed podaniem leku dziecku
-
-Kryterium sukcesu: zwrócona dawka jest zgodna z ulotką, odpowiedź zawiera cytowanie i disclaimer
-
----
-
-**E-04: Pytanie wieloetapowe (multi-hop)**
-
-Wejście: "Które leki przeciwbólowe są bezpieczne dla pacjenta z chorobą wrzodową żołądka?"
-
-Oczekiwane zachowanie:
-- GraphRAG łączy węzły Wskazanie (ból) z węzłami Działanie niepożądane (żołądek) i Przeciwwskazanie
-- system dzieli leki na bezpieczne i niezalecane z uzasadnieniem
-- odpowiedź zawiera cytowania i sugestię konsultacji z lekarzem
-
-Kryterium sukcesu: odpowiedź zawiera obie kategorie leków z uzasadnieniem opartym na danych z grafu
-
----
-
-**E-05: Wyszukanie zamiennika**
-
-Wejście: "Czym można zastąpić diklofenak?"
-
-Oczekiwane zachowanie:
-- GraphRAG wyszukuje węzły powiązane relacją ALTERNATYWA_DLA lub tą samą substancją czynną
-- system zwraca listę alternatyw z cytowaniami
-- odpowiedź informuje że zamiana wymaga konsultacji z lekarzem przed rozpoczęciem terapii
-
-Kryterium sukcesu: lista zawiera co najmniej jeden zamiennik z cytowaniem i disclaimerem
-
----
-
-**E-06: Ostrzeżenia dla grupy ryzyka**
-
-Wejście: "Jakie ostrzeżenia dotyczą stosowania metforminy u osób starszych z niewydolnością nerek?"
-
-Oczekiwane zachowanie:
-- GraphRAG przeszukuje węzły Przeciwwskazanie i Grupa pacjentów powiązane z lekiem
-- system zwraca listę ostrzeżeń właściwych dla wskazanej grupy
-- odpowiedź zawiera cytowania i sugestię konsultacji z lekarzem
-
-Kryterium sukcesu: odpowiedź zawiera co najmniej jedno ostrzeżenie z cytowaniem; zaznacza że dane dotyczą tylko zaindeksowanych dokumentów
-
----
-
-**E-07: Brak danych w kolekcji**
-
-Wejście: pytanie o lek nieobecny w zaindeksowanych dokumentach
-
-Oczekiwane zachowanie:
-- system nie znajduje danych w Neo4j
-- system nie generuje odpowiedzi z pamięci modelu
-- system zwraca jednoznaczny komunikat o braku danych i sugeruje konsultację z lekarzem lub farmaceutą
-
-Kryterium sukcesu: odpowiedź nie zawiera żadnych wymyślonych informacji; komunikat jest jednoznaczny
+Każdy przypadek oceniany jest na 6 binarnych sprawdzeniach: `non_empty`, `correct_refusal`/`not_refused`, `keyword_hit`, `has_citation`, `source_grounded`, `no_hallucination`. Test przechodzi gdy wszystkie wymagane sprawdzenia zakończą się sukcesem.
 
 ---
 
@@ -374,10 +331,12 @@ Słabej jakości skany mogą dać błędny tekst. W takich przypadkach wyniki s�
 
 ## Przygotowanie
 
-1. Ustaw klucz `OPENAI_API_KEY` w pliku `.env`
-2. Uruchom Neo4j lokalnie (`docker run -p 7474:7474 -p 7687:7687 neo4j`)
-3. Uruchom ingestion: `python ingest.py` (wczytuje PDF-y, buduje graf w Neo4j)
-4. Uruchom aplikację: `streamlit run app.py`
+1. Skopiuj `.env.example` do `.env` i uzupełnij klucze API oraz dane Neo4j
+2. Uruchom Neo4j: `docker compose up neo4j -d`
+3. Załaduj graf (jedna z opcji):
+   - `make seed` — wczytuje gotowe dane JSON do Neo4j (szybko, bez LLM)
+   - `make full` — pełna ekstrakcja z PDF → Neo4j (wymaga klucza LLM)
+4. Uruchom aplikację: `make app` (dostępna pod `http://localhost:8501`)
 
 ## Przebieg demonstracji
 

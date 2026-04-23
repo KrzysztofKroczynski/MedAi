@@ -1,4 +1,4 @@
-.PHONY: seed full wipe reset
+.PHONY: seed full wipe reset app
 
 seed:
 	-docker compose down --remove-orphans
@@ -13,3 +13,8 @@ wipe:
 	-docker network prune -f
 
 reset: wipe seed
+
+app:
+	-docker compose stop app
+	docker compose rm -f app
+	docker compose up app --build --force-recreate -d

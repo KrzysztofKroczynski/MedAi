@@ -19,7 +19,9 @@ cp .env.example .env
 Edit `.env` and fill in:
 
 ```
-OPENAI_API_KEY=sk-...
+LLM_PROVIDER=deepseek          # or "openai"
+DEEPSEEK_API_KEY=sk-...        # or OPENAI_API_KEY
+NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
 NEO4J_PASSWORD=your_password_here
 ```
@@ -28,11 +30,11 @@ NEO4J_PASSWORD=your_password_here
 
 Place PDF files (drug leaflets, SmPC documents) in `data/pdfs/`.
 
-### 3. Run
+### 3. Build the knowledge graph
 
 | Command | What it does |
 |---|---|
-| `make seed` | Load pre-processed JSON into Neo4j (fast, no LLM) |
+| `make seed` | Load pre-processed JSON into Neo4j (fast, no LLM needed) |
 | `make full` | Extract PDFs with LLM, then load into graph |
 
 > Requires `make`. Comes with Git Bash / MinGW on Windows.
@@ -44,16 +46,22 @@ docker compose --profile seed up   # seed only
 docker compose --profile full up   # ingest + seed
 ```
 
-- Neo4j Browser: `http://localhost:7474`
+### 4. Start the app
+
+```bash
+make app
+```
+
 - App: `http://localhost:8501`
+- Neo4j Browser: `http://localhost:7474`
 
 ---
 
-## What You'll Build
+## What It Does
 
-A natural language interface for searching medication information from pharmaceutical PDF documents, powered by **GraphRAG** and a structured knowledge graph.
+A natural language interface for searching medication information from pharmaceutical PDF documents, powered by a **LangGraph multi-agent pipeline** over a Neo4j knowledge graph.
 
-The system will process **PDF documents about medications**, including drug leaflets, prescribing information, SPCs(medication characteristics), formularies, and interaction references. It will convert this content into structured knowledge and answer complex questions such as:
+The system processes **PDF documents about medications**, including drug leaflets, prescribing information, SPCs (medication characteristics), formularies, and interaction references. It converts this content into structured knowledge and answers complex questions such as:
 
 - dosage guidance from official documents
 - contraindications and warnings
