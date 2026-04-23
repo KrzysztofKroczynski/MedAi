@@ -89,10 +89,23 @@ Clinical concept nodes (`Indication`, `Contraindication`, `AdverseEffect`, `Dose
 
 ## Detailed Documentation
 
+### Ingestion
 - [Stage 1 — Load](./ingestion-stage1-load.md)
 - [Stage 2 — Chunk](./ingestion-stage2-chunk.md)
 - [Stage 3 — Extract](./ingestion-stage3-extract.md)
 - [Stage 4 — Write to Graph](./ingestion-stage4-graph.md)
+
+### Shared Utilities
 - [Shared: LLM Client](./shared-llm-client.md)
 - [Shared: Neo4j Client](./shared-neo4j-client.md)
 - [Shared: Prompts](./shared-prompts.md)
+
+### Agent Pipeline
+- [Agent Overview](./agent-overview.md)
+- [Agent State Schema](./agent-state.md)
+- [Agent Nodes](./agent-nodes.md)
+- [Agent Tools](./agent-tools.md)
+
+### Application & Evaluation
+- [Streamlit App](./app.md)
+- [Evaluation Harness](./evaluation.md)
