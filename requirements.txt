@@ -21,3 +21,11 @@ python-dotenv>=1.0.0
 pydantic>=2.0.0
 tenacity>=8.0.0
 tqdm>=4.66.0
+
+# Multi-agent layer
+langgraph>=0.2.0
+langgraph-checkpoint-sqlite # SqliteSaver checkpointer
+aiosqlite                   # required by langgraph-checkpoint-sqlite
+tavily-python>=0.3.0        # web search (optional — falls back to DuckDuckGo)
+ddgs>=0.1.0                 # DuckDuckGo fallback for web search
+nest-asyncio>=0.5.0         # allow nested event loops in Streamlit
