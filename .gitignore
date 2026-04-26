@@ -1,8 +1,8 @@
 .DS_Store
 
 # Project-specific
-logs/*.log
-logs/*.md
+logs/**/*.log
+logs/**/*.md
 .env
 CLAUDE.md
 

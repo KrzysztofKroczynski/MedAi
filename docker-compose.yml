@@ -4,15 +4,15 @@ services:
     image: neo4j:5
     container_name: medgraph_neo4j
     ports:
-      - "7474:7474"   # Neo4j Browser
-      - "7687:7687"   # Bolt protocol
+      - "7474:7474"
+      - "7687:7687"
     environment:
-      NEO4J_AUTH: ${NEO4J_USER}/${NEO4J_PASSWORD}
+      NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-medgraph_pass}
       NEO4J_PLUGINS: '["apoc"]'
       NEO4J_dbms_security_procedures_unrestricted: apoc.*
     volumes:
       - neo4j_data:/data
-      - neo4j_logs:/logs
+      - ./logs/neo4j:/logs
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:7474"]
       interval: 10s
@@ -23,38 +23,35 @@ services:
   ingest:
     build:
       context: .
-      dockerfile: Dockerfile.ingest
+      dockerfile: Dockerfile
+      target: ingest
     container_name: medgraph_ingest
     depends_on:
       neo4j:
         condition: service_healthy
+    env_file: .env
     environment:
       PYTHONUNBUFFERED: "1"
-      LLM_PROVIDER: ${LLM_PROVIDER:-deepseek}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
-      MODEL: ${MODEL}
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USER: ${NEO4J_USER:-neo4j}
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:-medgraph_pass}
+      LLM_PROVIDER: ${LLM_PROVIDER:-deepseek}
     volumes:
       - ./data/pdfs:/app/data/pdfs:ro
       - ./data/processed:/app/data/processed
-      - ./logs:/app/logs
-    profiles:
-      - full   # docker compose --profile full up
+      - ./logs/ingest:/app/logs
+    profiles: [ingest]
 
   seed:
     build:
       context: .
-      dockerfile: Dockerfile.ingest   # reuses same image
+      dockerfile: Dockerfile
+      target: ingest
     container_name: medgraph_seed
     depends_on:
       neo4j:
         condition: service_healthy
-      ingest:
-        condition: service_completed_successfully
-        required: false   # skipped when running --profile seed (ingest not started)
+    env_file: .env
     environment:
       PYTHONUNBUFFERED: "1"
       NEO4J_URI: bolt://neo4j:7687
@@ -62,30 +59,27 @@ services:
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:-medgraph_pass}
     volumes:
       - ./data/processed:/app/data/processed:ro
-      - ./logs:/app/logs
+      - ./logs/seed:/app/logs
     command: ["python", "seed.py"]
-    profiles:
-      - seed   # docker compose --profile seed up
-      - full   # docker compose --profile full up  (waits for ingest to finish)
+    profiles: [seed]
 
   app:
     build:
       context: .
-      dockerfile: Dockerfile.app
+      dockerfile: Dockerfile
+      target: app
     container_name: medgraph_app
     depends_on:
       neo4j:
         condition: service_healthy
     ports:
       - "8501:8501"
+    env_file: .env
     environment:
-      LLM_PROVIDER: ${LLM_PROVIDER:-deepseek}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
-      MODEL: ${MODEL}
       NEO4J_URI: bolt://neo4j:7687
-      NEO4J_USER: ${NEO4J_USER}
-      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+      NEO4J_USER: ${NEO4J_USER:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-medgraph_pass}
+      LLM_PROVIDER: ${LLM_PROVIDER:-deepseek}
       PDFS_DIR: /app/data/pdfs
       AGENT_MAX_ITERATIONS: ${AGENT_MAX_ITERATIONS:-20}
     volumes:
@@ -95,4 +89,3 @@ services:
 
 volumes:
   neo4j_data:
-  neo4j_logs:

@@ -10,12 +10,12 @@ Provides the web UI and connects user input to the agent pipeline. Also includes
 
 ```bash
 # Via Docker (recommended)
-make app
+make up
 # or
-docker compose up app
+docker compose up neo4j app -d
 
 # Locally (requires Neo4j running)
-streamlit run app/app.py
+uv run streamlit run app/app.py
 
 # Access at
 http://localhost:8501

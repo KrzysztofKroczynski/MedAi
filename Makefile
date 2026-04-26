@@ -1,20 +1,23 @@
-.PHONY: seed full wipe reset app
+.PHONY: up down ingest seed wipe rebuild logs
 
-seed:
-	-docker compose down --remove-orphans
-	docker compose --profile seed up --build --force-recreate --exit-code-from seed
+up:       ## Start neo4j + app
+	docker compose up neo4j app -d
 
-full:
-	-docker compose down --remove-orphans
-	docker compose --profile full up --force-recreate
+down:     ## Stop all services (data preserved)
+	docker compose down --remove-orphans
 
-wipe:
-	-docker compose down -v --remove-orphans
-	-docker network prune -f
+ingest:   ## Full pipeline: PDFs → extract → Neo4j
+	docker compose run --rm --build ingest
 
-reset: wipe seed
+seed:     ## Load cached JSON → Neo4j (skip extraction)
+	docker compose run --rm --build seed
 
-app:
-	-docker compose stop app
-	docker compose rm -f app
-	docker compose up app --build --force-recreate -d
+wipe:     ## Stop all and DELETE Neo4j data (irreversible)
+	docker compose down -v --remove-orphans
+
+rebuild:  ## Rebuild app image and restart
+	docker compose build --no-cache app
+	docker compose up app -d --force-recreate
+
+logs:     ## Tail logs for all running services
+	docker compose logs -f
