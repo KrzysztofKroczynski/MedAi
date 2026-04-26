@@ -54,7 +54,7 @@ class QueryPlan(TypedDict):
     entity: str            # primary drug name (INN generic)
     secondary_entity: str  # second drug for interaction queries; else ""
     source: str            # "neo4j" | "web" (router hint; executor always tries neo4j first)
-    status: str            # "pending" | "complete"
+    status: str            # "pending" | "complete" | "no_result"
 ```
 
 **Example** — question "What are the side effects of ibuprofen and can I take it with warfarin?":
@@ -86,6 +86,21 @@ class EvidenceItem(TypedDict):
 
 ---
 
+## SourceLink
+
+Structured source reference embedded in each `CitationItem`. Used by the UI to render clickable PDF page links or web URLs.
+
+```python
+class SourceLink(TypedDict):
+    label: str             # "filename.pdf, page 8" or URL host text
+    source_type: str       # "pdf" | "web"
+    file: str              # source PDF filename (pdf links only)
+    page: Optional[int]    # 1-based page number (pdf links only)
+    url: str               # external URL (web links only)
+```
+
+---
+
 ## CitationItem
 
 Structured citation produced by the citation node for one `EvidenceItem`.
@@ -94,11 +109,12 @@ Structured citation produced by the citation node for one `EvidenceItem`.
 class CitationItem(TypedDict):
     query_id: str
     intent: str
-    answer_fragment: str   # verbatim PDF page snippet (or web content snippet)
-    verbatim: str          # selected node names joined by " / "
-    attribution: str       # "filename, page N" or URL
-    source_type: str       # "neo4j" | "web"
-    found: bool            # False → summarizer emits "not found" for this intent
+    answer_fragment: str         # verbatim PDF page snippet (or web content snippet)
+    verbatim: str                # selected node names joined by " / "
+    attribution: str             # "filename, page N" or URL (plain text for the summarizer prompt)
+    source_links: list[SourceLink]  # structured links for UI rendering
+    source_type: str             # "neo4j" | "web"
+    found: bool                  # False → summarizer emits "not found" for this intent
 ```
 
 Only `CitationItem`s with `found=True` carry evidence into the summarizer prompt.

@@ -36,6 +36,8 @@ All nodes are `async def` functions. They receive `AgentState` and return a part
 - `current_drug` — resolves pronouns ("it", "this drug", "the medication")
 - `current_indication` — resolves indication references across turns
 
+**Brand → INN translation:** The prompt explicitly instructs the LLM to translate brand names to their INN (International Nonproprietary Name) generic name before setting `entity`, because the graph indexes drugs by INN only. Examples baked into the prompt: Siofor → Metformin, Nurofen → Ibuprofen, Tylenol → Acetaminophen, Xanax → Alprazolam.
+
 **Output:** Up to 5 `QueryPlan` items, one per distinct information need.
 
 **Intent types:**
@@ -64,9 +66,12 @@ All nodes are `async def` functions. They receive `AgentState` and return a part
 **LLM calls:** 0
 
 **Execution logic per item:**
-1. Run `run_cypher_query(item)` via `asyncio.to_thread` (sync Neo4j driver)
-2. If content is empty **or** `source == "web"` → run `run_web_search(item)`
-3. Append result to `evidence_buffer`; mark item `complete`
+1. If `source == "web"` → skip Neo4j entirely, run `run_web_search(item)` only
+2. Otherwise run `run_cypher_query(item)` via `asyncio.to_thread` (sync Neo4j driver):
+   - If Neo4j returns **empty** content → fall back to `run_web_search(item)` only
+   - If Neo4j result is **thin** (< `NEO4J_SUPPLEMENT_THRESHOLD` = 300 chars) → keep Neo4j result **and** append `run_web_search(item)` result
+   - If Neo4j result is rich (≥ 300 chars) → use Neo4j result only
+3. Append result(s) to `evidence_buffer`; mark item `complete`
 
 **Parallelism:** All pending items run concurrently via `asyncio.gather`.
 
@@ -109,7 +114,7 @@ All nodes are `async def` functions. They receive `AgentState` and return a part
 1. **Deduplication** — keep best (non-empty) `EvidenceItem` per `query_id`
 2. **Node scoring** — `_relevant_node_names()` ranks graph node names by keyword overlap with the user question; entity name words weighted at 0.1× (question-specific words score 1 point each; entity name words score 0.1 each) to avoid drug-name pollution swamping clinical-term matches
 3. **PDF fetch** — `_pdf_page_text()` reads the primary source PDF page via `pypdf`; `_relevant_snippet()` extracts up to 400 chars centred on the first keyword hit
-4. **Attribution** — `_build_attribution()` formats up to 3 source files; prefers files whose name contains the drug entity name
+4. **Attribution** — `_build_attribution()` formats up to 5 source files; preferred files (name contains the entity) are capped at half the slots so non-matching sources (e.g. a brand-name PDF like `Siofor` for entity `Metformin`) always appear
 
 **Web evidence:** Uses `ev["content"]` directly as `answer_fragment` (first 500 chars); `source_citations[0]` as attribution.
 

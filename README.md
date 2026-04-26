@@ -30,6 +30,8 @@ NEO4J_PASSWORD=your_password_here
 
 Place PDF files (drug leaflets, SmPC documents) in `data/pdfs/`.
 
+You can also upload PDFs directly from the running app — use the **📤 Add New PDF** panel in the sidebar. It runs the full ingestion pipeline and adds the document to the knowledge graph without restarting anything.
+
 ### 3. Build the knowledge graph
 
 | Command | What it does |

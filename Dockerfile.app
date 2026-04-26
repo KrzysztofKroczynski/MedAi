@@ -8,6 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY rag/ ./rag/
 COPY graph/ ./graph/
 COPY shared/ ./shared/
+COPY ingestion/ ./ingestion/
 COPY app/ ./app/
 COPY .streamlit/ ./.streamlit/
 

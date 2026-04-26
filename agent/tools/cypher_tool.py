@@ -14,48 +14,48 @@ from agent.state import QueryPlan, EvidenceItem
 CYPHER_TEMPLATES = {
 
     "indication": """
-        MATCH (d)-[:INDICATED_FOR]->(i:Indication)
+        MATCH (d)-[r:INDICATED_FOR]->(i:Indication)
         WHERE toLower(d.name) CONTAINS toLower($entity)
           AND (d:Drug OR d:ActiveIngredient)
-        RETURN d.name AS drug, i.name AS indication,
-               i.source_file AS source_file, i.page_number AS page_number,
-               i.doc_type AS doc_type
-        LIMIT 50
+        WITH d.name AS drug, i.name AS indication,
+             reduce(s = [], c IN collect(r.source_citations) | s + c) AS source_citations
+        RETURN drug, indication, source_citations
+        ORDER BY size(source_citations) DESC
+        LIMIT 100
     """,
 
     "contraindication": """
-        MATCH (d)-[:CONTRAINDICATED_IN]->(c)
+        MATCH (d)-[r:CONTRAINDICATED_IN]->(c)
         WHERE toLower(d.name) CONTAINS toLower($entity)
           AND (d:Drug OR d:ActiveIngredient)
           AND (c:Contraindication OR c:PatientGroup)
-        RETURN d.name AS drug, c.name AS contraindication,
-               labels(c) AS node_labels,
-               c.source_file AS source_file, c.page_number AS page_number,
-               c.doc_type AS doc_type
-        LIMIT 50
+        WITH d.name AS drug, c.name AS contraindication, labels(c) AS node_labels,
+             reduce(s = [], x IN collect(r.source_citations) | s + x) AS source_citations
+        RETURN drug, contraindication, node_labels, source_citations
+        ORDER BY size(source_citations) DESC
+        LIMIT 100
     """,
 
     "adverse_effect": """
         MATCH (d)-[r:WARNS_FOR]->(a:AdverseEffect)
         WHERE toLower(d.name) CONTAINS toLower($entity)
           AND (d:Drug OR d:ActiveIngredient)
-        RETURN d.name AS drug, a.name AS adverse_effect,
-               a.source_file AS source_file, a.page_number AS page_number,
-               a.doc_type AS doc_type,
-               r.source_citations AS source_citations
-        LIMIT 50
+        WITH d.name AS drug, a.name AS adverse_effect,
+             reduce(s = [], c IN collect(r.source_citations) | s + c) AS source_citations
+        RETURN drug, adverse_effect, source_citations
+        ORDER BY size(source_citations) DESC
+        LIMIT 150
     """,
 
     "dose": """
         MATCH (d)-[r:HAS_DOSE]->(dos:Dose)
         WHERE toLower(d.name) CONTAINS toLower($entity)
           AND (d:Drug OR d:ActiveIngredient)
-        RETURN d.name AS drug, dos.name AS dose_detail,
-               dos.source_file AS source_file,
-               dos.page_number AS page_number,
-               dos.doc_type AS doc_type,
-               r.source_citations AS source_citations
-        LIMIT 50
+        WITH d.name AS drug, dos.name AS dose_detail,
+             reduce(s = [], c IN collect(r.source_citations) | s + c) AS source_citations
+        RETURN drug, dose_detail, source_citations
+        ORDER BY size(source_citations) DESC
+        LIMIT 100
     """,
 
     "interaction": """
@@ -65,10 +65,12 @@ CYPHER_TEMPLATES = {
           AND (d2:Drug OR d2:ActiveIngredient)
           AND ($secondary_entity = "" OR
                toLower(d2.name) CONTAINS toLower($secondary_entity))
-        RETURN d1.name AS drug1, d2.name AS drug2,
-               r.source_citations AS source_citations,
-               r.doc_type AS doc_type
-        LIMIT 50
+        WITH d1.name AS drug1, d2.name AS drug2,
+             reduce(s = [], c IN collect(r.source_citations) | s + c) AS source_citations,
+             collect(r.doc_type)[0] AS doc_type
+        RETURN drug1, drug2, source_citations, doc_type
+        ORDER BY size(source_citations) DESC
+        LIMIT 100
     """,
 
     "alternative": """
@@ -76,10 +78,11 @@ CYPHER_TEMPLATES = {
         WHERE toLower(d1.name) CONTAINS toLower($entity)
           AND (d1:Drug OR d1:ActiveIngredient)
           AND (d2:Drug OR d2:ActiveIngredient)
-        RETURN d1.name AS drug, d2.name AS alternative,
-               r.source_citations AS source_citations,
-               r.doc_type AS doc_type
-        LIMIT 50
+        WITH d1.name AS drug, d2.name AS alternative,
+             reduce(s = [], c IN collect(r.source_citations) | s + c) AS source_citations,
+             collect(r.doc_type)[0] AS doc_type
+        RETURN drug, alternative, source_citations, doc_type
+        LIMIT 100
     """,
 
     "patient_group": """
@@ -87,13 +90,11 @@ CYPHER_TEMPLATES = {
         WHERE toLower(d.name) CONTAINS toLower($entity)
           AND (d:Drug OR d:ActiveIngredient)
           AND type(r) IN ["CONTRAINDICATED_IN", "WARNS_FOR", "HAS_DOSE"]
-        RETURN d.name AS drug, pg.name AS patient_group,
-               type(r) AS relation_type,
-               pg.source_file AS source_file,
-               pg.page_number AS page_number,
-               pg.doc_type AS doc_type,
-               r.source_citations AS source_citations
-        LIMIT 50
+        WITH d.name AS drug, pg.name AS patient_group, type(r) AS relation_type,
+             reduce(s = [], c IN collect(r.source_citations) | s + c) AS source_citations
+        RETURN drug, patient_group, relation_type, source_citations
+        ORDER BY size(source_citations) DESC
+        LIMIT 100
     """,
 
     "general": """
@@ -107,7 +108,9 @@ CYPHER_TEMPLATES = {
                collect(DISTINCT i.name)[0..5] AS indications,
                collect(DISTINCT a.name)[0..5] AS adverse_effects,
                collect(DISTINCT c.name)[0..3] AS contraindications,
-               collect(DISTINCT r1.source_citations)[0..3] AS citations
+               collect(DISTINCT r1.source_citations)[0..3]
+                 + collect(DISTINCT r2.source_citations)[0..3]
+                 + collect(DISTINCT r3.source_citations)[0..3] AS citations
         LIMIT 10
     """
 }

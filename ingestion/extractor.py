@@ -13,11 +13,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import json
 import logging
 import re
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Sequence
 
 from langchain_core.documents import Document
@@ -319,16 +319,16 @@ def _is_truncated(response: Any) -> bool:
     return metadata.get("finish_reason") == "length"
 
 
-def extract_from_chunk(
+async def extract_from_chunk_async(
     document: Document,
     client: Any | None = None,
     _depth: int = 0,
 ) -> dict[str, Any] | None:
     """
-    Extract entities/relations from a single chunk document.
+    Extract entities/relations from a single chunk document (async).
 
     If the LLM truncates the response due to token limits, the chunk is split
-    in half and each half is extracted separately (capped at one level of
+    in half and both halves are extracted concurrently (capped at one level of
     recursion via _depth).
 
     Returns None if LLM call or JSON parsing fails.
@@ -345,7 +345,7 @@ def extract_from_chunk(
         llm = client or get_client(temperature=0)
         section_type = metadata.get("section_type", "unknown")
         prompt = _build_prompt(chunk_text, section_type=section_type)
-        response = llm.invoke(prompt)
+        response = await llm.ainvoke(prompt)
 
         # --- Truncation detection: split and re-extract rather than retry ---
         if _is_truncated(response) and _depth == 0:
@@ -354,14 +354,16 @@ def extract_from_chunk(
                 chunk_id,
             )
             first_text, second_text = _split_text(chunk_text)
-            results = []
-            for part_text in (first_text, second_text):
-                if not part_text:
-                    continue
-                part_doc = Document(page_content=part_text, metadata=metadata)
-                part_result = extract_from_chunk(part_doc, client=llm, _depth=1)
-                if part_result:
-                    results.append(part_result)
+            part_docs = [
+                Document(page_content=t, metadata=metadata)
+                for t in (first_text, second_text)
+                if t
+            ]
+            part_results = await asyncio.gather(
+                *[extract_from_chunk_async(doc, client=llm, _depth=1) for doc in part_docs],
+                return_exceptions=True,
+            )
+            results = [r for r in part_results if isinstance(r, dict)]
 
             if not results:
                 logger.warning("Chunk %s: both halves failed after split", chunk_id)
@@ -399,7 +401,7 @@ def extract_from_chunk(
                 f"Return ONLY valid JSON matching the schema. No markdown, no explanation."
             )
             try:
-                retry_response = llm.invoke(retry_prompt)
+                retry_response = await llm.ainvoke(retry_prompt)
                 retry_text = _response_to_text(retry_response)
                 extraction = _parse_extraction_json(retry_text)
                 logger.info("Chunk %s retry succeeded", chunk_id)
@@ -425,7 +427,7 @@ def extract_from_chunk(
                 prompt, extraction["entities"], valid_rels, invalid_rels
             )
             try:
-                correction_response = llm.invoke(correction_prompt)
+                correction_response = await llm.ainvoke(correction_prompt)
                 correction_text = _response_to_text(correction_response)
                 corrected = _parse_extraction_json(correction_text)
                 corrected_entity_map = _entity_type_map(corrected["entities"])
@@ -466,8 +468,8 @@ def extract_from_chunk(
 
 
 def _resolve_max_workers(total_chunks: int) -> int:
-    """Resolve a safe worker count for parallel extraction."""
-    default_workers = min(8, total_chunks)
+    """Resolve a safe concurrency limit for async extraction."""
+    default_workers = min(20, total_chunks)
     raw_value = os.getenv("EXTRACTION_MAX_WORKERS")
 
     if not raw_value:
@@ -488,11 +490,65 @@ def _resolve_max_workers(total_chunks: int) -> int:
     return min(total_chunks, configured)
 
 
-def extract_from_chunks(chunks: Sequence[Document]) -> list[dict[str, Any]]:
+async def _extract_from_chunks_async(
+    chunks: Sequence[Document],
+    workers: int,
+    on_chunk_done: Any = None,
+) -> list[dict[str, Any]]:
+    """Async core: fire all chunk extractions concurrently, bounded by semaphore."""
+    sem = asyncio.Semaphore(workers)
+
+    async def _bounded(index: int, chunk: Document) -> tuple[int, dict[str, Any] | None]:
+        async with sem:
+            result = await extract_from_chunk_async(chunk)
+            if on_chunk_done is not None:
+                on_chunk_done()
+            return index, result
+
+    gathered = await asyncio.gather(
+        *[_bounded(i, chunk) for i, chunk in enumerate(chunks)],
+        return_exceptions=True,
+    )
+
+    results_by_index: dict[int, dict[str, Any]] = {}
+    skipped = 0
+
+    for item in gathered:
+        if isinstance(item, Exception):
+            logger.warning("Worker raised unexpected exception: %s", item)
+            skipped += 1
+            continue
+        index, result = item
+        if result is None:
+            skipped += 1
+        else:
+            results_by_index[index] = result
+
+    results = [results_by_index[i] for i in sorted(results_by_index)]
+
+    logger.info(
+        "Finished extraction: input_chunks=%s extracted=%s skipped=%s concurrency=%s",
+        len(chunks),
+        len(results),
+        skipped,
+        workers,
+    )
+    return results
+
+
+def extract_from_chunks(
+    chunks: Sequence[Document],
+    on_chunk_done: Any = None,
+) -> list[dict[str, Any]]:
     """
     Extract entities/relations from chunked documents.
 
-    Returns a list of extraction dictionaries paired with source metadata.
+    Fires all LLM requests concurrently (bounded by EXTRACTION_MAX_WORKERS)
+    and gathers results when complete.
+    Returns a list of extraction dicts paired with source metadata, in chunk order.
+
+    ``on_chunk_done`` is an optional zero-argument callable invoked after each
+    chunk completes (useful for progress tracking).
     """
     if not chunks:
         logger.warning("No chunks provided to extract_from_chunks")
@@ -501,49 +557,10 @@ def extract_from_chunks(chunks: Sequence[Document]) -> list[dict[str, Any]]:
     workers = _resolve_max_workers(len(chunks))
 
     logger.info(
-        "Starting extraction for %s chunks using model=%s workers=%s",
+        "Starting extraction for %s chunks using model=%s concurrency=%s",
         len(chunks),
         MODEL,
         workers,
     )
 
-    results_by_index: dict[int, dict[str, Any]] = {}
-    skipped = 0
-
-    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="extractor") as executor:
-        futures = {
-            executor.submit(extract_from_chunk, document=chunk, client=None): index
-            for index, chunk in enumerate(chunks)
-        }
-
-        for future in as_completed(futures):
-            index = futures[future]
-            chunk = chunks[index]
-            metadata = dict(chunk.metadata or {})
-            chunk_id = metadata.get("chunk_id", "unknown")
-
-            try:
-                result = future.result()
-            except Exception as exc:
-                logger.warning("Skipping chunk %s due to worker error: %s", chunk_id, exc)
-                logger.debug("Chunk metadata=%s", metadata)
-                skipped += 1
-                continue
-
-            if result is None:
-                skipped += 1
-                continue
-
-            results_by_index[index] = result
-
-    results = [results_by_index[i] for i in sorted(results_by_index)]
-
-    logger.info(
-        "Finished extraction: input_chunks=%s extracted=%s skipped=%s workers=%s",
-        len(chunks),
-        len(results),
-        skipped,
-        workers,
-    )
-
-    return results
+    return asyncio.run(_extract_from_chunks_async(chunks, workers, on_chunk_done=on_chunk_done))

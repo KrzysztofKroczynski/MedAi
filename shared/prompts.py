@@ -5,6 +5,8 @@
 #     on the page's detected section type — indication, dose, adverse_effect, etc.).
 #     Entities: Drug, ActiveIngredient, Indication, Contraindication, AdverseEffect, Dose, PatientGroup.
 #     Relations: CONTAINS, INDICATED_FOR, CONTRAINDICATED_IN, INTERACTS_WITH, ALTERNATIVE_FOR, HAS_DOSE, WARNS_FOR.
+#     All entity names MUST be in English regardless of source text language (Polish, German, etc. are translated).
+#     Drug names use INN generic name only — brand names are mapped to INN.
 #
 #   CYPHER_GENERATION_PROMPT — translates a natural language question into a Neo4j Cypher READ query.
 #     Reflects the multi-label schema: clinical concept nodes carry both ClinicalConcept (base)
@@ -77,6 +79,11 @@ Naming rules — follow these exactly (IMPORTANT):
 - PatientGroup names: descriptive phrase, lowercase.
   Correct: "elderly patients", "children under 12", "patients with renal impairment"
 - All other entity names: concise, lowercase, no trailing punctuation.
+- ALL entity names MUST be in English regardless of the source text language.
+  Translate Polish, German, French, or any other language to English.
+  Examples: "wymioty" → "vomiting", "nudności" → "nausea",
+  "cukrzyca typu 2" → "type 2 diabetes", "niewydolność nerek" → "renal impairment",
+  "ból głowy" → "headache", "ciąża" → "pregnancy".
 
 Critical rules:
 - ALWAYS create a relation linking PatientGroup to its drug when a warning or

@@ -90,6 +90,7 @@ services:
       AGENT_MAX_ITERATIONS: ${AGENT_MAX_ITERATIONS:-20}
     volumes:
       - ./agent:/app/agent:ro
+      - ./ingestion:/app/ingestion:ro
       - ./data:/app/data
 
 volumes:

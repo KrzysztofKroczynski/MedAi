@@ -22,8 +22,15 @@ Each item must have:
   query_id          Short uppercase letter: "A", "B", "C", etc.
   intent            One of: indication, contraindication, adverse_effect,
                     dose, interaction, alternative, patient_group, general
-  entity            Primary drug name (INN generic). Resolve "it", "this
-                    drug", "the medication" using current_drug from context.
+  entity            Primary drug name — MUST be the INN (International
+                    Nonproprietary Name) generic name. The knowledge graph
+                    indexes drugs by INN only, so brand names will NOT match.
+                    If the user mentions a brand name, translate it to INN
+                    before setting this field.
+                    Examples: Siofor → Metformin, Nurofen → Ibuprofen,
+                    Tylenol → Acetaminophen, Xanax → Alprazolam.
+                    Resolve "it", "this drug", "the medication" using
+                    current_drug from context.
   secondary_entity  Second drug name for interaction queries. Empty string
                     otherwise.
   source            "neo4j" if likely in PIL/SmPC database.

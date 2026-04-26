@@ -24,11 +24,21 @@ Tools are called by the executor node. They are not LangGraph nodes — they are
 | `general` | Multi-hop: `INDICATED_FOR` + `WARNS_FOR` + `CONTRAINDICATED_IN` | Overview query; returns top 5 per category |
 
 All templates use `toLower() CONTAINS toLower($entity)` for case-insensitive partial matching.
-All templates use `LIMIT 50` (except `general` which uses `LIMIT 10`).
 
-### Source citation fallback
+**Limits and ordering:**
 
-Relationship properties (`r.source_citations`) are preferred. If absent, node properties (`source_file`, `page_number`) are used to construct `"filename|page"` strings. This handles relationship types that were written without a relationship variable (e.g. `CONTRAINDICATED_IN`).
+| Intent | LIMIT | ORDER BY |
+|--------|-------|----------|
+| `adverse_effect` | 150 | `size(source_citations) DESC` |
+| `indication`, `contraindication`, `dose`, `interaction`, `patient_group` | 100 | `size(source_citations) DESC` |
+| `alternative` | 100 | — |
+| `general` | 10 | — |
+
+Results are aggregated with `reduce()` so all `source_citations` across matching relationships are merged into a single flat list per (drug, concept) pair before ordering. This ensures that multi-source facts surface first and single-source facts from recently uploaded PDFs are not cut off by the limit.
+
+### Source citations
+
+All templates bind the relationship with a named variable (`[r:...]`) and return `r.source_citations` directly. This is the authoritative multi-source citation list accumulated across all ingestion runs via `ON MATCH SET r.source_citations = r.source_citations + new_citation`.
 
 ### Return value
 
@@ -67,6 +77,7 @@ Example for `{entity: "Ibuprofen", intent: "adverse_effect"}`:
 
 ### When web search runs
 
-The executor calls web search if:
-1. Neo4j returned empty content, **or**
-2. The `QueryPlan` item has `source == "web"` (router explicitly flagged it as a web query — e.g. very new drugs or brand-only names)
+The executor calls web search when:
+1. The `QueryPlan` item has `source == "web"` — router explicitly flagged it (e.g. very new drugs or brand-only names); Neo4j is skipped entirely
+2. Neo4j returned **empty** content — web replaces Neo4j entirely
+3. Neo4j returned **thin** content (< `NEO4J_SUPPLEMENT_THRESHOLD` = 300 chars) — web result is appended alongside the Neo4j result

@@ -75,18 +75,23 @@ def _relevant_node_names(
 def _top_citations(
     source_citations: list[str], entity: str, max_links: int = 5
 ) -> list[str]:
-    """Return up to max_links citations, preferring files that match the entity name."""
+    """Return up to max_links citations, preferring files that match the entity name.
+
+    Preferred sources are capped at half the slots so non-matching sources
+    (e.g. brand-name PDFs like Siofor for entity Metformin) always appear.
+    """
     entity_lower = entity.lower().replace(" ", "_")
     preferred = [s for s in source_citations if entity_lower in s.lower()]
     others = [s for s in source_citations if s not in preferred]
-    return (preferred + others)[:max_links]
+    preferred_cap = max(1, max_links // 2)
+    return (preferred[:preferred_cap] + others)[:max_links]
 
 
 def _build_attribution(source_citations: list[str], entity: str) -> str:
-    """Format up to 3 attribution strings; prefer files that match the entity name."""
+    """Format up to 5 attribution strings; prefer files that match the entity name."""
     if not source_citations:
         return ""
-    ordered = _top_citations(source_citations, entity, max_links=3)
+    ordered = _top_citations(source_citations, entity, max_links=5)
     parts = []
     for s in ordered:
         if "|" in s:

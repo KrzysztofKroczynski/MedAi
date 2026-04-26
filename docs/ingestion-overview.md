@@ -34,6 +34,8 @@ Neo4j database
 `seed.py` runs stage 4, loading cached extractions into Neo4j.
 `graph/schema.py` sets up constraints/indexes (run once before seeding).
 
+**In-app ingestion** — the Streamlit app (`app/app.py`) exposes a sidebar PDF uploader that triggers all four stages inline for a single uploaded file. New extractions are *appended* to the existing cache rather than overwriting it, so previously processed PDFs are unaffected.
+
 ## What Goes In / What Comes Out
 
 | Stage | Input | Output |
@@ -48,7 +50,7 @@ Neo4j database
 - **Cache layer** — `extractions.json` separates expensive LLM calls from graph writes; re-runs skip LLM.
 - **Idempotent writes** — all Neo4j operations use `MERGE`; pipeline is safe to re-run.
 - **Section-aware extraction** — chunks are annotated with section type (dose, indication, etc.) before LLM call; a hint is injected into the prompt to focus extraction.
-- **Parallel extraction** — chunks extracted concurrently via `ThreadPoolExecutor` (default: min(8, N) workers).
+- **Parallel extraction** — chunks extracted concurrently via `asyncio.gather` + `asyncio.Semaphore` (default: min(20, N) concurrent requests; override with `EXTRACTION_MAX_WORKERS`).
 - **Citations propagated end-to-end** — `source_file` + `page_number` travel from PDF → chunk → extraction → Neo4j relationship property → UI.
 
 ## Graph Schema

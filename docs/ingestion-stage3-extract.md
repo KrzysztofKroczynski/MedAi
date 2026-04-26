@@ -11,8 +11,15 @@ Call the LLM on each chunk to extract structured entities and relations. Validat
 ```python
 from ingestion.extractor import extract_from_chunks
 
+# Basic usage
 extractions = extract_from_chunks(chunks)
+
+# With per-chunk progress callback (called with no arguments after each chunk completes)
+completed = [0]
+extractions = extract_from_chunks(chunks, on_chunk_done=lambda: completed.__setitem__(0, completed[0] + 1))
 ```
+
+`on_chunk_done` is an optional zero-argument callable. It is invoked inside the async gather immediately after each chunk's coroutine finishes (whether successfully extracted or skipped). The app UI uses this to stream a live per-chunk progress bar while extraction runs in a background thread.
 
 ## Entity Types
 
@@ -62,32 +69,35 @@ Per-chunk extraction follows this flow:
 
 ```
 Build prompt (chunk text + section hint)
-    └─ Call LLM
+    └─ Call LLM (await llm.ainvoke)
         ├─ Truncated? (finish_reason == "length")
         │      └─ Split chunk in half (at natural boundary)
-        │          └─ Recursively extract both halves (max depth 1)
+        │          └─ Extract both halves concurrently (asyncio.gather, max depth 1)
         │              └─ Merge + deduplicate results
         │
         ├─ JSON invalid?
-        │      └─ Retry with error-feedback prompt
+        │      └─ Retry with error-feedback prompt (await llm.ainvoke)
         │
         ├─ Relations violate schema?
-        │      └─ Retry with correction prompt (preserve valid, fix invalid)
+        │      └─ Retry with correction prompt (await llm.ainvoke)
+        │          └─ Still invalid → drop remaining invalid, keep valid
         │
         └─ All retries fail → log warning, return None (chunk skipped)
 ```
 
+Retries are sequential **within** a single chunk's coroutine and do not affect other chunks running concurrently.
+
 Deduplication keys: entities by `(type, name)`, relations by `(from, rel, to)`.
 
-## Parallelism
+## Concurrency
 
 ```python
-# Default: min(8, total_chunks) workers
+# Default: min(20, total_chunks) concurrent requests
 # Override via environment variable:
-EXTRACTION_MAX_WORKERS=4
+EXTRACTION_MAX_WORKERS=20
 ```
 
-`ThreadPoolExecutor` extracts chunks concurrently; results are collected in original chunk order.
+`asyncio.gather` fires all chunk coroutines at once; an `asyncio.Semaphore` caps the number of in-flight LLM requests. No threads — the event loop handles IO, so higher concurrency is cheap. Results are collected in original chunk order.
 
 ## Output Format
 
@@ -122,14 +132,15 @@ Failed chunks return `None` and are excluded from the output list.
 
 ```
 Chunk-level Documents
-    └─ ThreadPoolExecutor (parallel, configurable workers)
-        └─ extract_from_chunk (per chunk)
-            ├─ build prompt (text + section hint)
-            ├─ LLM call
-            ├─ truncation → split + recurse
-            ├─ JSON parse + validate
-            ├─ relation schema validate
-            └─ retry loops
+    └─ asyncio.gather (all chunks fired concurrently)
+        └─ asyncio.Semaphore (caps in-flight requests)
+            └─ extract_from_chunk_async (per chunk coroutine)
+                ├─ build prompt (text + section hint)
+                ├─ await llm.ainvoke
+                ├─ truncation → split + asyncio.gather both halves
+                ├─ JSON parse + validate
+                ├─ relation schema validate
+                └─ retry loops (sequential within coroutine)
         → ordered list of extraction dicts (None entries removed)
 ```
 
