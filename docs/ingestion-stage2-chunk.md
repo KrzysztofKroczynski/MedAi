@@ -4,23 +4,21 @@
 
 ## Purpose
 
-Split page-level Documents into overlapping token-bounded chunks and annotate each chunk with its document section type (indication, dose, etc.).
+Split page-level Documents into overlapping character-bounded chunks and annotate each chunk with its document section type (indication, dose, etc.).
 
 ## Entry Point
 
 ```python
 from ingestion.chunker import chunk_documents
 
-chunks = chunk_documents(docs)  # default: 800 tok, 150 overlap
+chunks = chunk_documents(docs)  # default: ~800 tokens (3200 chars), ~150 token overlap (600 chars)
 ```
 
 ## Functions
 
 ### `build_text_splitter(chunk_size_tokens=800, chunk_overlap_tokens=150, ...) → RecursiveCharacterTextSplitter`
 
-Builds a token-aware splitter using `tiktoken` (`cl100k_base` encoding).
-
-Falls back to approximate character-based splitting (ratio 4 chars : 1 token) if tiktoken is unavailable.
+Builds a character-based splitter. Token counts are converted to approximate character counts using a 4 chars ≈ 1 token ratio (so 800 tokens → 3200 chars, 150 overlap → 600 chars).
 
 Separators tried in order: `["\n\n", "\n", ". ", " ", ""]`
 
@@ -91,7 +89,7 @@ Sections are inferred from page headings/content and annotated as `section_type`
 Page-level Documents
     └─ group by source_file
         └─ annotate_pages (section_type, per PDF)
-            └─ build token-aware splitter (800 tok, 150 overlap)
+            └─ build character-based splitter (3200 chars / 600 overlap)
                 └─ chunk_single_document (per page)
                     └─ skip empty chunks
                         └─ backfill chunk_count

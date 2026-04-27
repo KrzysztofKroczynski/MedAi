@@ -6,6 +6,49 @@ Provides the web UI and connects user input to the agent pipeline. Also includes
 
 ---
 
+## Architecture
+
+```mermaid
+flowchart TB
+    subgraph Browser
+        ST["Streamlit UI<br/>(chat + PDF upload)"]
+    end
+
+    subgraph "app/app.py"
+        RP["_run_agent_pipeline()<br/>ThreadPoolExecutor → asyncio.run"]
+        IP["_render_ingestion_panel()<br/>inline 4-stage pipeline"]
+    end
+
+    subgraph "Agent Pipeline (LangGraph)"
+        GR[Guardrail] --> RO[Router] --> EX[Executor]
+        EX --> DE[Decision]
+        DE -->|NEED_MORE| EX
+        DE -->|SUFFICIENT| CI[Citation]
+        CI --> SU[Summarizer]
+    end
+
+    subgraph "Data Sources"
+        NEO[(Neo4j<br/>Knowledge Graph)]
+        DDG[DuckDuckGo<br/>Web Search]
+        PDFS["PDF Files<br/>(data/pdfs/)"]
+    end
+
+    subgraph "Ingestion Pipeline"
+        LO[Loader] --> CH[Chunker] --> XT[Extractor] --> GB[Graph Builder]
+    end
+
+    ST -->|chat message| RP
+    ST -->|upload PDF| IP
+    RP --> GR
+    SU -->|final_answer + citations| ST
+
+    EX --> NEO
+    EX --> DDG
+    CI --> PDFS
+    IP --> LO
+    GB --> NEO
+```
+
 ## Running
 
 ```bash

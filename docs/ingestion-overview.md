@@ -28,6 +28,24 @@ data/processed/extractions.json   (cache — skip LLM on re-runs)
 Neo4j database
 ```
 
+### Pipeline Flow Diagram
+
+```mermaid
+flowchart TD
+    PDF["📄 PDF Files<br/>(data/pdfs/)"] --> LOAD["<b>1. Load</b><br/>loader.py<br/>PDF → Page Documents"]
+    LOAD --> CHUNK["<b>2. Chunk</b><br/>chunker.py<br/>800 tok / 150 overlap"]
+    CHUNK --> EXTRACT["<b>3. Extract</b><br/>extractor.py<br/>LLM entity extraction<br/>(async parallel)"]
+    EXTRACT --> CACHE["💾 Cache<br/>extractions.json"]
+    CACHE --> WRITE["<b>4. Write</b><br/>graph_builder.py<br/>MERGE (idempotent)"]
+    WRITE --> NEO["🔵 Neo4j<br/>Knowledge Graph"]
+
+    EXTRACT -.->|retry on truncation/<br/>invalid JSON| EXTRACT
+
+    style PDF fill:#f9f,stroke:#333
+    style NEO fill:#4da6ff,stroke:#333,color:#fff
+    style CACHE fill:#ffd,stroke:#333
+```
+
 ## Orchestration
 
 `ingest.py` runs stages 1–3 and writes the JSON cache.
@@ -68,6 +86,46 @@ Neo4j database
 | `PatientGroup` | Patient population with special considerations |
 
 Clinical concept nodes (`Indication`, `Contraindication`, `AdverseEffect`, `Dose`, `PatientGroup`) also carry the `:ClinicalConcept` base label to enable schema-agnostic queries.
+
+### Entity-Relationship Diagram
+
+```mermaid
+erDiagram
+    Drug ||--o{ ActiveIngredient : CONTAINS
+    Drug ||--o{ Indication : INDICATED_FOR
+    Drug ||--o{ Contraindication : CONTRAINDICATED_IN
+    Drug ||--o{ AdverseEffect : WARNS_FOR
+    Drug ||--o{ Dose : HAS_DOSE
+    Drug ||--o{ PatientGroup : "CONTRAINDICATED_IN / WARNS_FOR / HAS_DOSE"
+    Drug ||--o{ Drug : "INTERACTS_WITH / ALTERNATIVE_FOR"
+    ActiveIngredient ||--o{ Indication : INDICATED_FOR
+    ActiveIngredient ||--o{ Contraindication : CONTRAINDICATED_IN
+    ActiveIngredient ||--o{ AdverseEffect : WARNS_FOR
+    ActiveIngredient ||--o{ Dose : HAS_DOSE
+    ActiveIngredient ||--o{ ActiveIngredient : "INTERACTS_WITH / ALTERNATIVE_FOR"
+
+    Drug {
+        string name PK
+    }
+    ActiveIngredient {
+        string name PK
+    }
+    Indication {
+        string name PK
+    }
+    Contraindication {
+        string name PK
+    }
+    AdverseEffect {
+        string name PK
+    }
+    Dose {
+        string name PK "Drug:detail format"
+    }
+    PatientGroup {
+        string name PK
+    }
+```
 
 **Relationships**
 

@@ -1,6 +1,6 @@
 # Text chunker for loaded PDF documents.
 # Uses LangChain RecursiveCharacterTextSplitter to split documents into overlapping chunks.
-# Chunk size and overlap should be configurable (defaults: 800 tokens, 150 overlap).
+# Uses approximate character-based splitting (4 chars ≈ 1 token).
 # Preserves and forwards all source metadata (source_file, page_number, doc_type) to each chunk.
 # Returns a list of LangChain Document objects ready for entity extraction.
 from __future__ import annotations
@@ -16,23 +16,21 @@ from ingestion.section_splitter import annotate_pages
 
 logger = logging.getLogger(__name__)
 
+CHARS_PER_TOKEN = 4
 DEFAULT_CHUNK_SIZE_TOKENS = 800
 DEFAULT_CHUNK_OVERLAP_TOKENS = 150
-DEFAULT_TOKEN_ENCODING = "cl100k_base"
 DEFAULT_SEPARATORS = ["\n\n", "\n", ". ", " ", ""]
 
 
 def build_text_splitter(
     chunk_size_tokens: int = DEFAULT_CHUNK_SIZE_TOKENS,
     chunk_overlap_tokens: int = DEFAULT_CHUNK_OVERLAP_TOKENS,
-    encoding_name: str = DEFAULT_TOKEN_ENCODING,
     separators: list[str] | None = None,
 ) -> RecursiveCharacterTextSplitter:
     """
-    Build a token-aware RecursiveCharacterTextSplitter when possible.
+    Build a character-based RecursiveCharacterTextSplitter.
 
-    Falls back to an approximate character-based splitter if tiktoken
-    or token-aware splitting is unavailable.
+    Converts token counts to approximate character counts (4 chars ≈ 1 token).
     """
     if chunk_size_tokens <= 0:
         raise ValueError("chunk_size_tokens must be > 0")
@@ -45,41 +43,24 @@ def build_text_splitter(
 
     separators = separators or DEFAULT_SEPARATORS
 
-    try:
-        splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
-            encoding_name=encoding_name,
-            chunk_size=chunk_size_tokens,
-            chunk_overlap=chunk_overlap_tokens,
-            separators=separators,
-            keep_separator=True,
-            strip_whitespace=True,
-        )
-        logger.info(
-            "Initialized token-aware chunker (size=%s overlap=%s encoding=%s)",
-            chunk_size_tokens,
-            chunk_overlap_tokens,
-            encoding_name,
-        )
-        return splitter
-    except Exception as exc:
-        approx_chunk_size_chars = chunk_size_tokens * 4
-        approx_chunk_overlap_chars = chunk_overlap_tokens * 4
+    chunk_size_chars = chunk_size_tokens * CHARS_PER_TOKEN
+    chunk_overlap_chars = chunk_overlap_tokens * CHARS_PER_TOKEN
 
-        logger.warning(
-            "Token-aware chunker unavailable; falling back to approximate "
-            "character-based splitting (size=%s overlap=%s). Error: %s",
-            approx_chunk_size_chars,
-            approx_chunk_overlap_chars,
-            exc,
-        )
+    logger.info(
+        "Initialized chunker (size=%s chars ≈ %s tokens, overlap=%s chars ≈ %s tokens)",
+        chunk_size_chars,
+        chunk_size_tokens,
+        chunk_overlap_chars,
+        chunk_overlap_tokens,
+    )
 
-        return RecursiveCharacterTextSplitter(
-            chunk_size=approx_chunk_size_chars,
-            chunk_overlap=approx_chunk_overlap_chars,
-            separators=separators,
-            keep_separator=True,
-            strip_whitespace=True,
-        )
+    return RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size_chars,
+        chunk_overlap=chunk_overlap_chars,
+        separators=separators,
+        keep_separator=True,
+        strip_whitespace=True,
+    )
 
 
 def _make_chunk_id(metadata: dict, chunk_index: int) -> str:
@@ -93,7 +74,6 @@ def chunk_single_document(
     splitter: RecursiveCharacterTextSplitter | None = None,
     chunk_size_tokens: int = DEFAULT_CHUNK_SIZE_TOKENS,
     chunk_overlap_tokens: int = DEFAULT_CHUNK_OVERLAP_TOKENS,
-    encoding_name: str = DEFAULT_TOKEN_ENCODING,
     separators: list[str] | None = None,
 ) -> list[Document]:
     """
@@ -108,7 +88,6 @@ def chunk_single_document(
         splitter = build_text_splitter(
             chunk_size_tokens=chunk_size_tokens,
             chunk_overlap_tokens=chunk_overlap_tokens,
-            encoding_name=encoding_name,
             separators=separators,
         )
 
@@ -158,7 +137,6 @@ def chunk_documents(
     documents: Sequence[Document],
     chunk_size_tokens: int = DEFAULT_CHUNK_SIZE_TOKENS,
     chunk_overlap_tokens: int = DEFAULT_CHUNK_OVERLAP_TOKENS,
-    encoding_name: str = DEFAULT_TOKEN_ENCODING,
     separators: list[str] | None = None,
 ) -> list[Document]:
     """
@@ -173,7 +151,6 @@ def chunk_documents(
     splitter = build_text_splitter(
         chunk_size_tokens=chunk_size_tokens,
         chunk_overlap_tokens=chunk_overlap_tokens,
-        encoding_name=encoding_name,
         separators=separators,
     )
 
