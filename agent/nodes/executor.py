@@ -14,18 +14,15 @@ async def query_executor_node(state: AgentState) -> dict:
     pending = [p for p in state["query_plan"] if p["status"] == "pending"]
 
     async def execute_one(item) -> list[EvidenceItem]:
-        # Explicit web items skip Neo4j entirely
-        if item["source"] == "web":
-            return [await run_web_search(item)]
-
         neo4j_evidence = await asyncio.to_thread(run_cypher_query, item)
 
         if not neo4j_evidence["content"]:
-            # Nothing in Neo4j — fall back to web only
+            # Nothing in Neo4j — fall back to web regardless of source hint
             return [await run_web_search(item)]
 
-        if len(neo4j_evidence["content"]) < NEO4J_SUPPLEMENT_THRESHOLD:
-            # Thin Neo4j result — supplement with web
+        thin = len(neo4j_evidence["content"]) < NEO4J_SUPPLEMENT_THRESHOLD
+        if thin or item["source"] == "web":
+            # Thin result, or router suspected this drug isn't well-indexed — supplement
             web_evidence = await run_web_search(item)
             results = [neo4j_evidence]
             if web_evidence["content"]:
