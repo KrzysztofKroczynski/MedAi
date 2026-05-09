@@ -9,7 +9,7 @@ Runs a fixed set of test questions through the full agent pipeline and scores ea
 ## Running
 
 ```bash
-# Run all 49 test cases
+# Run all 47 test cases
 uv run python evaluate.py
 
 # Run specific test IDs only
@@ -75,7 +75,7 @@ A test **passes** if:
 | neo4j-grounded | 14 | Targeted queries for confirmed graph edges |
 | no-data / unknown drug | 2 | Made-up drug names — hallucination guard |
 
-**Total: 47 unique test cases** (49 entries — E-01 and E-02 run twice for coverage)
+**Total: 47 unique test cases**
 
 ---
 

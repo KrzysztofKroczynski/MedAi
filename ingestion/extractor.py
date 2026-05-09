@@ -1,15 +1,16 @@
-# Entity and relation extractor for medication text chunks.
-# Calls the LLM using ENTITY_EXTRACTION_PROMPT from shared/prompts.py.
-# Gets the client and model from shared/llm_client.py (MODEL).
-# For each chunk, sends the text to the LLM and parses the returned JSON.
-# Expected JSON structure:
-#   {
-#     "entities": [{"type": "Drug", "name": "Ibuprofen"}, ...],
-#     "relations": [{"from": "Ibuprofen", "rel": "INTERACTS_WITH", "to": "Warfarin"}, ...]
-#   }
-# Should handle LLM errors and malformed JSON gracefully (log and skip the chunk).
-# Returns a list of extraction result dicts, each paired with the chunk's source metadata.
-"""Entity/relation extraction for medication text chunks."""
+"""Entity/relation extraction for medication text chunks.
+
+Calls the LLM with ENTITY_EXTRACTION_PROMPT (shared/prompts.py) using MODEL (shared/llm_client.py).
+All chunks are processed concurrently, bounded by EXTRACTION_MAX_WORKERS.
+
+Error handling:
+  - Invalid JSON → one correction retry with error feedback.
+  - Schema-violating relations → targeted correction retry; still-invalid relations are dropped.
+  - Truncated response (finish_reason == "length") → chunk is split in half and re-extracted.
+  - LLM invocation failure → chunk is skipped (logged as warning).
+
+Returns a list of dicts [{text, metadata, entities, relations, model}] in original chunk order.
+"""
 
 from __future__ import annotations
 

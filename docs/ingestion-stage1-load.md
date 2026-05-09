@@ -33,10 +33,10 @@ Infers document type from filename keywords.
 
 | Keyword(s) in filename | `doc_type` |
 |------------------------|------------|
-| `pil`, `leaflet` | `PIL` |
-| `smpc`, `spc` | `SmPC` |
+| `pil`, `leaflet`, `ulotka`, `package-insert`, `package_insert` | `PIL` |
+| `smpc`, `characteristics`, `summary-of-product-characteristics`, `summary_of_product_characteristics` | `SmPC` |
 | `prescribing` | `PrescribingInformation` |
-| `interaction` | `InteractionReference` |
+| `interaction`, `interactions` | `InteractionReference` |
 | `formulary` | `Formulary` |
 | *(no match)* | `Unknown` |
 
