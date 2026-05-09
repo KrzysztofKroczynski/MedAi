@@ -1,7 +1,9 @@
-# Shared Neo4j driver singleton.
-# Reads NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD from environment variables.
-# Exposes a get_driver() function that returns a connected neo4j.GraphDatabase.driver instance.
-# Should handle connection retries on startup (Neo4j may still be initializing).
+"""Shared Neo4j driver singleton.
+
+Reads NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD from environment variables.
+Exposes get_driver() which returns a connected neo4j.GraphDatabase.driver instance.
+Retries on startup to handle Neo4j still initializing.
+"""
 
 import os
 import time

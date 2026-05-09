@@ -47,7 +47,7 @@ Per PDF group:
 
 ## Section Detection
 
-Sections are inferred from page headings/content and annotated as `section_type` metadata.
+Sections are inferred from page headings/content and annotated as `section_type` metadata (`ingestion/section_splitter.py`).
 
 | `section_type` | Content described |
 |----------------|-------------------|
@@ -58,10 +58,22 @@ Sections are inferred from page headings/content and annotated as `section_type`
 | `dose` | Dosing instructions |
 | `interaction` | Drug-drug interactions |
 | `patient_group` | Specific patient populations |
-| `storage` | Storage conditions |
-| `unknown` | Unrecognised section |
+| `storage` | Storage conditions / inactive ingredients |
+| `unknown` | TOC page or no recognised header |
 
-`propagate=True` — if a page has no detectable section heading, it inherits the previous page's section type. Propagation resets at each PDF boundary.
+### Detection logic (`detect_page_section`)
+
+For each page:
+
+0. **TOC check** — if the page matches a TOC marker regex (`FULL PRESCRIBING INFORMATION: CONTENTS`, `TABLE OF CONTENTS`, `PACKAGE LEAFLET: INFORMATION FOR`, `CONTENTS OF THE PACK`) **or** contains ≥ 5 short numbered lines, it is classified as `unknown` immediately and no further matching is attempted.
+1. **Pattern scan** — all header patterns are searched across the full page text. Patterns cover three document formats: EMA Package Leaflet (numbered prose: "1. What X is used for"), US FDA OTC Drug Facts (plain headers: "Uses", "Warnings", "Directions"), and US FDA Prescribing Information (numbered ALL-CAPS: "1 INDICATIONS AND USAGE").
+2. **Earliest-match-wins** — every matching pattern records its start position in the text. The `section_type` of the pattern with the **smallest** start position wins. This correctly labels a page whose content starts with adverse-effect text but ends with a "5. How to store" heading as `adverse_effect`.
+3. **Boxed WARNING** — `WARNING:` is matched only in the first 300 characters of the page. If found earlier than any other pattern, `warning` wins.
+4. **No match** → `unknown`.
+
+### Propagation (`annotate_pages`)
+
+`propagate=True` — if a page is classified `unknown`, it inherits the **previous page's** section type. This handles multi-page sections where only the first page has a header. Propagation resets at each PDF boundary so the last section of one PDF cannot bleed into the first pages of the next.
 
 ## Output Metadata per Chunk
 

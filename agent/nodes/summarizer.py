@@ -5,6 +5,8 @@ from langchain_core.messages import HumanMessage, AIMessage
 from shared.llm_client import get_client
 from agent.state import AgentState
 
+_llm = get_client(temperature=0)
+
 SUMMARIZER_PROMPT = """
 You are the answer synthesizer for MedGraph AI, a pharmaceutical information
 assistant used by healthcare professionals and patients.
@@ -61,13 +63,12 @@ async def summarizer_node(state: AgentState) -> dict:
             "messages": [AIMessage(content=answer)]
         }
 
-    llm = get_client(temperature=0)
     prompt = SUMMARIZER_PROMPT.format(
         user_message=state["messages"][-1].content,
         citations=json.dumps(state["citations"], indent=2)
     )
 
-    result = await llm.ainvoke([HumanMessage(content=prompt)])
+    result = await _llm.ainvoke([HumanMessage(content=prompt)])
     answer = result.content
 
     # Ensure disclaimer is present even if LLM omitted it

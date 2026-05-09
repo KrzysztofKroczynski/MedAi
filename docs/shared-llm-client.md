@@ -33,3 +33,30 @@ print(MODEL)                       # active model name
 `get_llm` and `get_client` are aliases.
 
 Raises `EnvironmentError` if the required API key environment variable is not set.
+
+## Singleton pattern
+
+Each consumer that calls the LLM in a tight loop creates one instance at module level rather than per-call:
+
+```python
+# agent/nodes/guardrail.py (and router, decision, summarizer)
+_llm = get_client(temperature=0)   # created once at import time
+
+async def guardrail_node(state):
+    result = await _llm.ainvoke([...])
+```
+
+```python
+# ingestion/extractor.py
+async def _extract_from_chunks_async(chunks, workers, ...):
+    llm = get_client(temperature=0)   # one instance for the whole extraction run
+    # passed to all concurrent chunk coroutines
+```
+
+`ChatOpenAI` construction is not free — it allocates an HTTPX connection pool. Creating it once per process (agent nodes) or once per extraction run (extractor) avoids that overhead on every request.
+
+## Concurrent async safety
+
+A single `ChatOpenAI` instance is safe to call concurrently from multiple `async` coroutines. Each `await llm.ainvoke(prompt)` issues an independent HTTP request through the shared HTTPX async connection pool. No per-request mutable state is stored on the `ChatOpenAI` object — only read-only configuration (model, temperature, API key). This is the standard usage pattern for the OpenAI Python SDK's async client.
+
+The extractor runs up to `EXTRACTION_MAX_WORKERS` (default 20) chunk coroutines concurrently, all sharing one `ChatOpenAI` instance. Within each coroutine, retries are awaited sequentially — they do not affect other chunks running in parallel.

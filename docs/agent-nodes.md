@@ -66,11 +66,14 @@ All nodes are `async def` functions. They receive `AgentState` and return a part
 **LLM calls:** 0
 
 **Execution logic per item:**
-1. If `source == "web"` → skip Neo4j entirely, run `run_web_search(item)` only
-2. Otherwise run `run_cypher_query(item)` via `asyncio.to_thread` (sync Neo4j driver):
-   - If Neo4j returns **empty** content → fall back to `run_web_search(item)` only
-   - If Neo4j result is **thin** (< `NEO4J_SUPPLEMENT_THRESHOLD` = 300 chars) → keep Neo4j result **and** append `run_web_search(item)` result
-   - If Neo4j result is rich (≥ 300 chars) → use Neo4j result only
+
+Cypher always runs first regardless of the `source` hint. `source == "web"` means the router suspects the drug is not well-indexed — it triggers a web supplement, not a Neo4j skip.
+
+1. Run `run_cypher_query(item)` via `asyncio.to_thread` (sync Neo4j driver in a thread).
+2. Decision based on Neo4j result:
+   - **Empty** → discard Neo4j, run `run_web_search(item)` only (regardless of `source`)
+   - **Thin** (< `NEO4J_SUPPLEMENT_THRESHOLD` = 300 chars) **or** `source == "web"` → keep Neo4j result and run `run_web_search(item)`; web is appended only if its content is non-empty
+   - **Rich** (≥ 300 chars) and `source == "neo4j"` → use Neo4j result only; no web search
 3. Append result(s) to `evidence_buffer`; mark item `complete`
 
 **Parallelism:** All pending items run concurrently via `asyncio.gather`.
@@ -113,7 +116,7 @@ All nodes are `async def` functions. They receive `AgentState` and return a part
 
 1. **Deduplication** — keep best (non-empty) `EvidenceItem` per `query_id`
 2. **Node scoring** — `_relevant_node_names()` ranks graph node names by keyword overlap with the user question; entity name words weighted at 0.1× (question-specific words score 1 point each; entity name words score 0.1 each) to avoid drug-name pollution swamping clinical-term matches
-3. **PDF fetch** — `_pdf_page_text()` reads the primary source PDF page via `pypdf`; `_relevant_snippet()` extracts up to 400 chars centred on the first keyword hit
+3. **PDF fetch** — `_pdf_page_text()` reads the primary source PDF page via `pypdf`; `_relevant_snippet()` extracts up to 400 chars centred on the first keyword hit. Results are cached with `@lru_cache(maxsize=128)` — repeated citations from the same file/page within a turn read the PDF only once.
 4. **Attribution** — `_build_attribution()` formats up to 5 source files; preferred files (name contains the entity) are capped at half the slots so non-matching sources (e.g. a brand-name PDF like `Siofor` for entity `Metformin`) always appear
 
 **Web evidence:** Uses `ev["content"]` directly as `answer_fragment` (first 500 chars); `source_citations[0]` as attribution.
@@ -127,6 +130,11 @@ All nodes are `async def` functions. They receive `AgentState` and return a part
 **Purpose:** Synthesize a grounded natural language answer from citations.
 
 **LLM calls:** 1 (temperature=0) — skipped entirely if `state["error"]` is set.
+
+**Source priority rules enforced by prompt:**
+- Neo4j citations (`source_type == "neo4j"`) always preferred over web citations for the same `query_id` — they come from licensed PIL/SmPC documents.
+- Web citations used only when no Neo4j citation covers the same fact, or to add detail not present in the Neo4j citation.
+- If Neo4j and web citations disagree, the Neo4j finding is stated and the disagreement is noted.
 
 **Format rules enforced by prompt:**
 - 2–4 sentences directly answering the question

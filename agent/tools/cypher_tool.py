@@ -7,10 +7,6 @@ strings are NEVER string-interpolated into query text (prevents graph injection)
 from shared.neo4j_client import get_driver
 from agent.state import QueryPlan, EvidenceItem
 
-# All templates use $entity and optionally $secondary_entity as parameters.
-# toLower() used for case-insensitive matching.
-# LIMIT 50 — consistent with shared/prompts.py convention.
-
 CYPHER_TEMPLATES = {
 
     "indication": """
@@ -108,12 +104,22 @@ CYPHER_TEMPLATES = {
                collect(DISTINCT i.name)[0..5] AS indications,
                collect(DISTINCT a.name)[0..5] AS adverse_effects,
                collect(DISTINCT c.name)[0..3] AS contraindications,
-               collect(DISTINCT r1.source_citations)[0..3]
-                 + collect(DISTINCT r2.source_citations)[0..3]
-                 + collect(DISTINCT r3.source_citations)[0..3] AS citations
+               reduce(s = [], x IN collect(r1.source_citations) | s + x)
+                 + reduce(s = [], x IN collect(r2.source_citations) | s + x)
+                 + reduce(s = [], x IN collect(r3.source_citations) | s + x)
+                 AS source_citations
         LIMIT 10
     """
 }
+
+# Field names that hold node names across all query templates.
+# List-valued fields (from the general template) are flattened during collection.
+_NODE_NAME_KEYS = [
+    "indication", "contraindication", "adverse_effect", "dose_detail",
+    "patient_group", "alternative", "drug2",
+    # general template returns these as lists
+    "indications", "adverse_effects", "contraindications",
+]
 
 
 def run_cypher_query(item: QueryPlan) -> EvidenceItem:
@@ -149,16 +155,17 @@ def run_cypher_query(item: QueryPlan) -> EvidenceItem:
             all_citations.append(f"{r['source_file']}|{r['page_number']}")
     all_citations = list(dict.fromkeys(all_citations))  # deduplicate, preserve order
 
-    # Collect node names for quote assembly
-    node_name_keys = [
-        "indication", "contraindication", "adverse_effect", "dose_detail",
-        "patient_group", "alternative", "drug2"
-    ]
+    # Collect node names for quote assembly; handle both scalar and list-valued fields.
     node_names = []
     for r in records:
-        for k in node_name_keys:
-            if r.get(k):
-                node_names.append(str(r[k]))
+        for k in _NODE_NAME_KEYS:
+            val = r.get(k)
+            if not val:
+                continue
+            if isinstance(val, list):
+                node_names.extend(str(v) for v in val if v)
+            else:
+                node_names.append(str(val))
     node_names = list(dict.fromkeys(node_names))
 
     return EvidenceItem(

@@ -194,19 +194,23 @@ Anti-loop safeguards in the decision prompt:
 
 ### Executor Fallback Strategy
 
+Cypher always runs first. `source == "web"` from the router is not a skip flag — it means "this drug is likely not in the indexed documents, so supplement with web even if Neo4j returns something."
+
 ```mermaid
 flowchart TD
-    A[QueryPlan item] --> B{source == web?}
-    B -->|Yes| W[Web search only]
-    B -->|No| C[Run Cypher query]
-    C --> D{Result?}
-    D -->|Empty| W
-    D -->|Thin < 300 chars| E[Keep Neo4j + append Web]
-    D -->|Rich >= 300 chars| F[Use Neo4j only]
+    A[QueryPlan item] --> C[Run Cypher query]
+    C --> D{Neo4j result?}
+    D -->|Empty| W[Web search only]
+    D -->|"Thin (< 300 chars)\nOR source == 'web'"| E[Keep Neo4j + run Web]
+    D -->|"Rich AND source == 'neo4j'"| F[Neo4j only]
+    E --> G{Web non-empty?}
+    G -->|Yes| H["[Neo4j, Web]"]
+    G -->|No| I[Neo4j only]
 
-    W --> G[EvidenceItem]
-    E --> G
-    F --> G
+    W --> Z[EvidenceItem list]
+    F --> Z
+    H --> Z
+    I --> Z
 ```
 
 ### Security Boundaries

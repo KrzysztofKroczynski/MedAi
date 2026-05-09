@@ -4,6 +4,8 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from shared.llm_client import get_client
 from agent.state import AgentState
 
+_llm = get_client(temperature=0)
+
 GUARDRAIL_SYSTEM = """
 You are a strict input classifier for MedGraph AI — a pharmaceutical
 information assistant built from Patient Information Leaflets (PILs) and
@@ -35,10 +37,9 @@ Rules:
 
 
 async def guardrail_node(state: AgentState) -> dict:
-    llm = get_client(temperature=0)
     user_text = state["messages"][-1].content
 
-    result = await llm.ainvoke([
+    result = await _llm.ainvoke([
         SystemMessage(content=GUARDRAIL_SYSTEM),
         HumanMessage(content=user_text)
     ])

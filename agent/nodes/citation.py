@@ -4,10 +4,13 @@ Selects node_names relevant to the user's question, fetches verbatim text
 from the source PDF page, and formats attribution from source_citations.
 """
 
+import functools
 import os
 import re
 from pathlib import Path
 from urllib.parse import urlparse
+
+from pypdf import PdfReader
 
 from agent.state import AgentState, CitationItem, EvidenceItem, QueryPlan, SourceLink
 
@@ -15,13 +18,13 @@ from agent.state import AgentState, CitationItem, EvidenceItem, QueryPlan, Sourc
 _PDFS_DIR = Path(os.getenv("PDFS_DIR", "data/pdfs"))
 
 
+@functools.lru_cache(maxsize=128)
 def _pdf_page_text(source_file: str, page_number: int) -> str:
     """Extract raw text from a specific PDF page (1-based)."""
     path = _PDFS_DIR / source_file
     if not path.exists():
         return ""
     try:
-        from pypdf import PdfReader
         reader = PdfReader(str(path))
         idx = max(0, page_number - 1)
         if idx >= len(reader.pages):
@@ -132,7 +135,7 @@ def _source_links_from_citations(source_citations: list[str]) -> list[SourceLink
             )
             continue
 
-        if source.startswith("http://") or source.startswith("https://"):
+        if source.startswith(("http://", "https://")):
             parsed = urlparse(source)
             links.append(
                 SourceLink(
@@ -212,7 +215,7 @@ def _cite_one(ev: EvidenceItem, plan_item: QueryPlan, user_message: str) -> Cita
                 if page_text:
                     keywords = [plan_item["entity"]] + relevant[:3]
                     pdf_snippet = _relevant_snippet(page_text, keywords)
-            except (ValueError, Exception):
+            except Exception:
                 pass
 
     answer_fragment = (

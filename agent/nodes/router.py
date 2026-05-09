@@ -5,6 +5,8 @@ from langchain_core.messages import HumanMessage
 from shared.llm_client import get_client
 from agent.state import AgentState, QueryPlan
 
+_llm = get_client(temperature=0)
+
 ROUTER_PROMPT = """
 You are the query planner for MedGraph AI, a pharmaceutical information
 assistant. Your job is to analyse the user's question and session context,
@@ -67,7 +69,6 @@ Output:
 
 
 async def router_node(state: AgentState) -> dict:
-    llm = get_client(temperature=0)
     ctx = state.get("session_context", {})
 
     prompt = ROUTER_PROMPT.format(
@@ -76,7 +77,7 @@ async def router_node(state: AgentState) -> dict:
         user_message=state["messages"][-1].content
     )
 
-    result = await llm.ainvoke([HumanMessage(content=prompt)])
+    result = await _llm.ainvoke([HumanMessage(content=prompt)])
 
     try:
         raw = result.content.strip()

@@ -23,23 +23,10 @@ from typing import Any, Sequence
 
 from langchain_core.documents import Document
 
-import shared.prompts as prompts
 from shared.llm_client import MODEL, get_client
+from shared.prompts import ENTITY_EXTRACTION_PROMPT
 
 logger = logging.getLogger(__name__)
-
-ENTITY_EXTRACTION_PROMPT = getattr(
-    prompts,
-    "ENTITY_EXTRACTION_PROMPT",
-    (
-        "Extract medication-related entities and relations from the text below. "
-        "Return strictly valid JSON with this schema: "
-        "{\"entities\":[{\"type\":\"...\",\"name\":\"...\"}],"
-        "\"relations\":[{\"from\":\"...\",\"rel\":\"...\",\"to\":\"...\"}]}. "
-        "Do not include markdown.\n\n"
-        "Text:\n{text}"
-    ),
-)
 
 # Maps section_type values (from section_splitter) to a concise hint injected
 # into the extraction prompt to guide the LLM's entity type assignment.
@@ -258,38 +245,18 @@ def _build_correction_prompt(
 
 def _build_prompt(chunk_text: str, section_type: str = "unknown") -> str:
     """Render extraction prompt with chunk text and optional section hint."""
-    template = ENTITY_EXTRACTION_PROMPT
     hint = _SECTION_HINTS.get(section_type, "")
-
-    if "{text}" in template:
-        prompt = template.replace("{text}", chunk_text)
-    elif "{chunk}" in template:
-        prompt = template.replace("{chunk}", chunk_text)
-    elif "{chunk_text}" in template:
-        prompt = template.replace("{chunk_text}", chunk_text)
-    else:
-        prompt = f"{template}\n\nText:\n{chunk_text}"
-
-    if "{section_hint}" in prompt:
-        prompt = prompt.replace("{section_hint}", hint)
-
-    return prompt
+    return ENTITY_EXTRACTION_PROMPT.replace("{text}", chunk_text).replace("{section_hint}", hint)
 
 
 def _split_text(text: str) -> tuple[str, str]:
     """Split text near the midpoint at a natural paragraph or sentence boundary."""
     mid = len(text) // 2
-    # Prefer splitting at a double newline closest to midpoint
-    for search_fn, sep in [
-        (lambda t, m: t.rfind("\n\n", 0, m), "\n\n"),
-        (lambda t, m: t.rfind("\n", 0, m), "\n"),
-        (lambda t, m: t.rfind(". ", 0, m), ". "),
-    ]:
-        pos = search_fn(text, mid)
+    for sep in ["\n\n", "\n", ". "]:
+        pos = text.rfind(sep, 0, mid)
         if pos != -1:
             split_at = pos + len(sep)
             return text[:split_at].strip(), text[split_at:].strip()
-    # Hard split at midpoint
     return text[:mid].strip(), text[mid:].strip()
 
 
@@ -498,10 +465,11 @@ async def _extract_from_chunks_async(
 ) -> list[dict[str, Any]]:
     """Async core: fire all chunk extractions concurrently, bounded by semaphore."""
     sem = asyncio.Semaphore(workers)
+    llm = get_client(temperature=0)
 
     async def _bounded(index: int, chunk: Document) -> tuple[int, dict[str, Any] | None]:
         async with sem:
-            result = await extract_from_chunk_async(chunk)
+            result = await extract_from_chunk_async(chunk, client=llm)
             if on_chunk_done is not None:
                 on_chunk_done()
             return index, result

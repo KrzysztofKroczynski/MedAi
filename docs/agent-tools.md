@@ -46,7 +46,7 @@ All templates bind the relationship with a named variable (`[r:...]`) and return
 - `source_type`: `"neo4j"`
 - `content`: stringified list of record dicts
 - `source_citations`: deduplicated `["filename|page"]` list
-- `node_names`: values from intent-specific columns (`indication`, `contraindication`, `adverse_effect`, `dose_detail`, `patient_group`, `alternative`, `drug2`)
+- `node_names`: values from intent-specific columns (`indication`, `contraindication`, `adverse_effect`, `dose_detail`, `patient_group`, `alternative`, `drug2`). The `general` template returns list-valued columns (`indications`, `adverse_effects`, `contraindications`) — these are flattened automatically during collection.
 
 ---
 
@@ -77,7 +77,10 @@ Example for `{entity: "Ibuprofen", intent: "adverse_effect"}`:
 
 ### When web search runs
 
-The executor calls web search when:
-1. The `QueryPlan` item has `source == "web"` — router explicitly flagged it (e.g. very new drugs or brand-only names); Neo4j is skipped entirely
-2. Neo4j returned **empty** content — web replaces Neo4j entirely
-3. Neo4j returned **thin** content (< `NEO4J_SUPPLEMENT_THRESHOLD` = 300 chars) — web result is appended alongside the Neo4j result
+The executor always runs the Cypher query first. Web search is triggered when:
+
+1. Neo4j returned **empty** content — web replaces Neo4j entirely.
+2. Neo4j returned **thin** content (< `NEO4J_SUPPLEMENT_THRESHOLD` = 300 chars) — web result is appended alongside the Neo4j result (only if web content is non-empty).
+3. `QueryPlan.source == "web"` — router suspected the drug is not well-indexed (e.g. very new compound, brand-only name). Neo4j still runs; its result is kept and web is appended if non-empty.
+
+In all three cases Neo4j is attempted first. `source == "web"` is a supplement hint, not a skip instruction.

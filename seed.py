@@ -17,29 +17,26 @@ from tqdm import tqdm
 from graph.graph_builder import write_extractions
 from graph.schema import apply, reset
 
-# ---------------------------------------------------------------------------
-# Logging — suppress noisy INFO lines from graph_builder during the run;
-# they'd interleave with tqdm. Re-enable DEBUG to file only.
-# ---------------------------------------------------------------------------
-Path("logs").mkdir(exist_ok=True)
-
-file_handler = logging.FileHandler("logs/seed.log", encoding="utf-8")
-file_handler.setLevel(logging.DEBUG)
-file_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s"))
-
-# Only WARN+ to console (tqdm handles the visual output)
-console_handler = logging.StreamHandler(sys.stderr)
-console_handler.setLevel(logging.WARNING)
-
-logging.basicConfig(level=logging.DEBUG, handlers=[file_handler, console_handler])
-logger = logging.getLogger(__name__)
-
 
 def _step(msg: str) -> None:
     tqdm.write(f"  {msg}")
 
 
 if __name__ == "__main__":
+    # Logging — suppress noisy INFO lines from graph_builder during the run;
+    # they'd interleave with tqdm. Re-enable DEBUG to file only.
+    Path("logs").mkdir(exist_ok=True)
+
+    file_handler = logging.FileHandler("logs/seed.log", encoding="utf-8")
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s"))
+
+    console_handler = logging.StreamHandler(sys.stderr)
+    console_handler.setLevel(logging.WARNING)
+
+    logging.basicConfig(level=logging.DEBUG, handlers=[file_handler, console_handler])
+    logger = logging.getLogger(__name__)
+
     cache_path = Path("data/processed/extractions.json")
 
     tqdm.write("\nMedGraph AI - seed\n" + "-" * 40)

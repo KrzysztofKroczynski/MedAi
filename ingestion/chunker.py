@@ -1,18 +1,19 @@
-# Text chunker for loaded PDF documents.
-# Uses LangChain RecursiveCharacterTextSplitter to split documents into overlapping chunks.
-# Uses approximate character-based splitting (4 chars ≈ 1 token).
-# Preserves and forwards all source metadata (source_file, page_number, doc_type) to each chunk.
-# Returns a list of LangChain Document objects ready for entity extraction.
+"""Text chunker for loaded PDF documents.
+
+Uses LangChain RecursiveCharacterTextSplitter to split documents into overlapping chunks.
+Uses approximate character-based splitting (4 chars ≈ 1 token).
+Preserves and forwards all source metadata (source_file, page_number, doc_type) to each chunk.
+Returns a list of LangChain Document objects ready for entity extraction.
+"""
 from __future__ import annotations
 
 import logging
 from typing import Sequence
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 from ingestion.section_splitter import annotate_pages
-
-
 
 logger = logging.getLogger(__name__)
 

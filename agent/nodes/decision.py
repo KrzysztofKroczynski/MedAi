@@ -7,6 +7,7 @@ from shared.llm_client import get_client
 from agent.state import AgentState, QueryPlan
 
 _MAX_ITERATIONS = int(os.getenv("AGENT_MAX_ITERATIONS", "20"))
+_llm = get_client(temperature=0)
 
 DECISION_PROMPT = """
 You are the reasoning engine for MedGraph AI, a pharmaceutical information
@@ -73,14 +74,13 @@ async def llm_decision_node(state: AgentState) -> dict:
     if state["iteration"] >= _MAX_ITERATIONS:
         return {"llm_decision": "SUFFICIENT", "next_query_plan": []}
 
-    llm = get_client(temperature=0)
     prompt = DECISION_PROMPT.format(
         user_message=state["messages"][-1].content,
         query_plan=json.dumps(state["query_plan"], indent=2),
         evidence_buffer=json.dumps(state["evidence_buffer"], indent=2)
     )
 
-    result = await llm.ainvoke([HumanMessage(content=prompt)])
+    result = await _llm.ainvoke([HumanMessage(content=prompt)])
     response = result.content.strip()
 
     if "DECISION: SUFFICIENT" in response:
