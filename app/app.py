@@ -31,14 +31,15 @@ DATA_PDFS_DIR = PROJECT_ROOT / "data" / "pdfs"
 STATIC_PDFS_DIR = _HERE / "static" / "pdfs"
 
 _NODE_META: dict[str, tuple[str, str]] = {
-    "guardrail":        ("🛡️", "Guardrail"),
-    "router":           ("🗺️", "Router"),
-    "executor":         ("🔍", "Executor"),
-    "decision":         ("🧠", "Decision"),
-    "citation":         ("📎", "Citation Builder"),
-    "summarizer":       ("✍️", "Summarizer"),
-    "reject_injection": ("🚫", "Rejected — Injection"),
-    "reject_offtopic":  ("🚫", "Rejected — Off-topic"),
+    "guardrail":          ("🛡️", "Guardrail"),
+    "patient_extractor":  ("🧑‍⚕️", "Patient Extractor"),
+    "router":             ("🗺️", "Router"),
+    "executor":           ("🔍", "Executor"),
+    "decision":           ("🧠", "Decision"),
+    "citation":           ("📎", "Citation Builder"),
+    "summarizer":         ("✍️", "Summarizer"),
+    "reject_injection":   ("🚫", "Rejected — Injection"),
+    "reject_offtopic":    ("🚫", "Rejected — Off-topic"),
 }
 
 
@@ -77,6 +78,12 @@ def _format_node_trace(node_name: str, updates: dict, current_iteration: int = 0
         label = updates.get("guardrail_label", "")
         info["label"] = label
         info["summary"] = f"Classified input as **{label}**"
+
+    elif node_name == "patient_extractor":
+        ctx = updates.get("session_context", {})
+        profile = ctx.get("patient_profile", "")
+        info["patient_profile"] = profile
+        info["summary"] = f"Patient profile: _{profile or 'none'}_"
 
     elif node_name == "router":
         plan = updates.get("query_plan", [])
@@ -149,6 +156,9 @@ def _render_agent_trace(trace: list[dict], container: Any) -> None:
         with container.expander(f"{icon} **{label}** — {summary}", expanded=False):
             if node == "guardrail":
                 st.write(f"**Label:** `{step.get('label', '')}`")
+
+            elif node == "patient_extractor":
+                st.write(f"**Profile:** {step.get('patient_profile', '_(none)_')}")
 
             elif node == "router":
                 for item in step.get("query_plan", []):
@@ -246,7 +256,7 @@ def _render_assistant_message(payload: dict[str, Any], debug: bool = False) -> N
             _render_citations(citations if isinstance(citations, list) else [])
 
     if debug:
-        trace = st.session_state.get("agent_trace", [])
+        trace = payload.get("trace") or st.session_state.get("agent_trace", [])
         if trace:
             with st.expander(f"🔬 Agent trace ({len(trace)} steps)", expanded=False):
                 _render_agent_trace(trace, st)
@@ -279,32 +289,62 @@ def _get_agent_memory(session_id: str) -> dict[str, Any] | None:
         return {"error": str(exc)}
 
 
-def _render_memory_panel(session_id: str) -> None:
-    st.sidebar.title("🧠 Memory Inspector")
-    st.sidebar.caption(f"Session: `{session_id}`")
+def _setup_debug_sidebar(session_id: str) -> tuple[Any, Any]:
+    """Create the debug sidebar layout. Returns (state_slot, trace_slot) placeholders."""
+    with st.sidebar:
+        st.title("🔬 Debug")
+        st.caption(f"`{session_id[:12]}…`")
+        st.subheader("Session State")
+        state_slot = st.empty()
+        st.divider()
+        st.subheader("Agent Trace")
+        trace_slot = st.empty()
+    return state_slot, trace_slot
 
+
+def _fill_sidebar_state(slot: Any, session_id: str) -> None:
+    """Read the latest checkpoint and render session state into slot."""
     memory = _get_agent_memory(session_id)
-    if memory is None:
-        st.sidebar.info("No checkpointer state yet — ask a question first.")
-    elif "error" in memory:
-        st.sidebar.error(f"Error reading state: {memory['error']}")
-    else:
+    with slot.container():
+        if memory is None:
+            st.caption("No state yet — ask a question first.")
+            return
+        if "error" in memory:
+            st.error(memory["error"])
+            return
+
         ctx = memory.get("session_context", {})
-        st.sidebar.subheader("Session Context")
-        st.sidebar.json(ctx if ctx else {"note": "empty — no turns completed yet"})
+        patient_profile = ctx.get("patient_profile", "")
+        current_drug = ctx.get("current_drug", "—")
+        turn = ctx.get("turn_count", 0)
 
-        msgs = memory.get("messages", [])
-        st.sidebar.subheader(f"Message History ({len(msgs)} messages)")
-        for i, m in enumerate(msgs):
-            role = m.get("role", "unknown")
-            content = m.get("content", "")
-            icon = "🧑" if role == "human" else "🤖"
-            with st.sidebar.expander(f"{icon} [{i+1}] {role}", expanded=False):
-                st.text(content[:2000] + ("…" if len(content) > 2000 else ""))
+        col1, col2 = st.columns(2)
+        col1.metric("Drug", current_drug)
+        col2.metric("Turn", turn)
 
-    trace = st.session_state.get("agent_trace", [])
-    st.sidebar.subheader(f"Last Run — Agent Trace ({len(trace)} steps)")
-    _render_agent_trace(trace, st.sidebar)
+        st.caption("🧑‍⚕️ **Patient profile**")
+        if patient_profile:
+            st.info(patient_profile)
+        else:
+            st.caption("_(none yet)_")
+
+        with st.expander("Full session context", expanded=False):
+            st.json(ctx or {"note": "empty"})
+
+
+def _fill_sidebar_trace(slot: Any, trace: list[dict]) -> None:
+    """Render agent trace steps into slot."""
+    with slot.container():
+        if not trace:
+            st.caption("_(waiting for first step…)_")
+            return
+        for step in trace:
+            node = step.get("node", "unknown")
+            icon, label = _NODE_META.get(node, ("⚙️", node))
+            summary = step.get("summary", "")
+            st.write(f"{icon} **{label}**")
+            if summary:
+                st.caption(f"  {summary}")
 
 
 # ---------------------------------------------------------------------------
@@ -497,8 +537,14 @@ def main() -> None:
     st.write("Ask medication questions in natural language.")
 
     debug = st.query_params.get("debug") == "1"
+    session_id = st.session_state["session_id"]
+
+    sidebar_state_slot: Any = None
+    sidebar_trace_slot: Any = None
     if debug:
-        _render_memory_panel(st.session_state["session_id"])
+        sidebar_state_slot, sidebar_trace_slot = _setup_debug_sidebar(session_id)
+        _fill_sidebar_state(sidebar_state_slot, session_id)
+        _fill_sidebar_trace(sidebar_trace_slot, st.session_state.get("agent_trace", []))
 
     for message in st.session_state["messages"]:
         role = message.get("role", "assistant")
@@ -508,8 +554,12 @@ def main() -> None:
             else:
                 st.markdown(message.get("content", ""))
 
-    user_question = st.chat_input("E.g., Can Ibuprofen interact with Warfarin?")
-    if not user_question:
+    is_processing = st.session_state.get("processing", False)
+    user_question = st.chat_input(
+        "E.g., Can Ibuprofen interact with Warfarin?",
+        disabled=is_processing,
+    )
+    if not user_question or is_processing:
         return
 
     st.session_state["messages"].append({"role": "user", "content": user_question})
@@ -521,18 +571,14 @@ def main() -> None:
         live_trace: list[dict] = []
         current_iteration = 0
 
-        def _on_node(node_name: str, updates: dict) -> None:
+        def _on_node(node_name: str, updates: dict) -> None:  # noqa: E306
             node_queue.put((node_name, updates))
 
+        st.session_state["processing"] = True
         try:
             with st.status("Searching medication documents…", expanded=debug) as agent_status:
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                    future = pool.submit(
-                        run_agent_query,
-                        user_question,
-                        st.session_state["session_id"],
-                        _on_node,
-                    )
+                    future = pool.submit(run_agent_query, user_question, session_id, _on_node)
 
                     while not future.done():
                         while not node_queue.empty():
@@ -543,6 +589,8 @@ def main() -> None:
                             live_trace.append(step)
                             icon, label = _NODE_META.get(node_name, ("⚙️", node_name))
                             st.write(f"{icon} **{label}** — {step.get('summary', '')}")
+                            if sidebar_trace_slot is not None:
+                                _fill_sidebar_trace(sidebar_trace_slot, live_trace)
                         time.sleep(0.15)
 
                     pipeline_result = future.result()
@@ -568,9 +616,19 @@ def main() -> None:
                 "trace": [],
                 "error": str(exc),
             }
+        finally:
+            st.session_state["processing"] = False
 
         st.session_state["agent_trace"] = live_trace
+
+        # Refresh sidebar with updated checkpoint state and completed trace
+        if sidebar_state_slot is not None:
+            _fill_sidebar_state(sidebar_state_slot, session_id)
+        if sidebar_trace_slot is not None:
+            _fill_sidebar_trace(sidebar_trace_slot, live_trace)
+
         assistant_payload = {k: v for k, v in pipeline_result.items() if k != "trace"}
+        assistant_payload["trace"] = live_trace
         _render_assistant_message(assistant_payload, debug=debug)
 
     assistant_payload["role"] = "assistant"

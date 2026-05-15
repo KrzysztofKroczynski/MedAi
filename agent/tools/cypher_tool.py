@@ -97,18 +97,43 @@ CYPHER_TEMPLATES = {
         MATCH (d)
         WHERE toLower(d.name) CONTAINS toLower($entity)
           AND (d:Drug OR d:ActiveIngredient)
-        OPTIONAL MATCH (d)-[r1:INDICATED_FOR]->(i:Indication)
-        OPTIONAL MATCH (d)-[r2:WARNS_FOR]->(a:AdverseEffect)
-        OPTIONAL MATCH (d)-[r3:CONTRAINDICATED_IN]->(c)
-        RETURN d.name AS drug,
-               collect(DISTINCT i.name)[0..5] AS indications,
-               collect(DISTINCT a.name)[0..5] AS adverse_effects,
-               collect(DISTINCT c.name)[0..3] AS contraindications,
-               reduce(s = [], x IN collect(r1.source_citations) | s + x)
-                 + reduce(s = [], x IN collect(r2.source_citations) | s + x)
-                 + reduce(s = [], x IN collect(r3.source_citations) | s + x)
-                 AS source_citations
+        CALL {
+            WITH d
+            OPTIONAL MATCH (d)-[r1:INDICATED_FOR]->(i:Indication)
+            RETURN collect(DISTINCT i.name)[0..5] AS indications,
+                   reduce(s=[], x IN collect(r1.source_citations) | s+x) AS ind_cits
+        }
+        CALL {
+            WITH d
+            OPTIONAL MATCH (d)-[r2:WARNS_FOR]->(a:AdverseEffect)
+            RETURN collect(DISTINCT a.name)[0..5] AS adverse_effects,
+                   reduce(s=[], x IN collect(r2.source_citations) | s+x) AS ae_cits
+        }
+        CALL {
+            WITH d
+            OPTIONAL MATCH (d)-[r3:CONTRAINDICATED_IN]->(c)
+            RETURN collect(DISTINCT c.name)[0..3] AS contraindications,
+                   reduce(s=[], x IN collect(r3.source_citations) | s+x) AS ci_cits
+        }
+        RETURN d.name AS drug, indications, adverse_effects, contraindications,
+               ind_cits + ae_cits + ci_cits AS source_citations
         LIMIT 10
+    """,
+
+    # Finds all pairwise INTERACTS_WITH edges among a provided list of drugs.
+    # Used when the user asks about 3+ drugs simultaneously; avoids C(n,2) round-trips.
+    "multi_interaction": """
+        MATCH (d1)-[r:INTERACTS_WITH]-(d2)
+        WHERE (d1:Drug OR d1:ActiveIngredient)
+          AND (d2:Drug OR d2:ActiveIngredient)
+          AND any(name IN $drug_list WHERE toLower(d1.name) CONTAINS toLower(name))
+          AND any(name IN $drug_list WHERE toLower(d2.name) CONTAINS toLower(name))
+          AND id(d1) < id(d2)
+        WITH d1.name AS drug1, d2.name AS drug2,
+             reduce(s=[], c IN collect(r.source_citations) | s+c) AS source_citations
+        RETURN drug1, drug2, source_citations
+        ORDER BY size(source_citations) DESC
+        LIMIT 200
     """
 }
 
@@ -116,7 +141,7 @@ CYPHER_TEMPLATES = {
 # List-valued fields (from the general template) are flattened during collection.
 _NODE_NAME_KEYS = [
     "indication", "contraindication", "adverse_effect", "dose_detail",
-    "patient_group", "alternative", "drug2",
+    "patient_group", "alternative", "drug1", "drug2",
     # general template returns these as lists
     "indications", "adverse_effects", "contraindications",
 ]
@@ -128,7 +153,8 @@ def run_cypher_query(item: QueryPlan) -> EvidenceItem:
     template = CYPHER_TEMPLATES.get(item["intent"], CYPHER_TEMPLATES["general"])
     params = {
         "entity": item["entity"],
-        "secondary_entity": item.get("secondary_entity", "")
+        "secondary_entity": item.get("secondary_entity", ""),
+        "drug_list": item.get("drug_list", []),
     }
 
     with driver.session() as session:

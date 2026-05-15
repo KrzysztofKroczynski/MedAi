@@ -4,15 +4,25 @@ from typing import TypedDict, Annotated, Optional
 from langgraph.graph.message import add_messages
 
 
-class QueryPlan(TypedDict):
+def _merge_ctx(a: dict | None, b: dict | None) -> dict:
+    """Merge reducer for session_context — deep-merges so nodes can do partial
+    updates without wiping keys they didn't touch."""
+    return {**(a or {}), **(b or {})}
+
+
+class _QueryPlanRequired(TypedDict):
     query_id: str          # "A", "B", "C" — unique per decomposed intent
     intent: str            # "indication" | "contraindication" | "adverse_effect"
-                           # | "dose" | "interaction" | "alternative" |
-                           # "patient_group" | "general"
-    entity: str            # primary drug or ingredient name
+                           # | "dose" | "interaction" | "multi_interaction" |
+                           # "alternative" | "patient_group" | "general"
+    entity: str            # primary drug INN (first drug for multi_interaction)
     secondary_entity: str  # second drug for interaction queries, else ""
     source: str            # "neo4j" | "web"
     status: str            # "pending" | "complete" | "no_result"
+
+
+class QueryPlan(_QueryPlanRequired, total=False):
+    drug_list: list[str]   # all drug INNs for multi_interaction; omit otherwise
 
 
 class EvidenceItem(TypedDict):
@@ -48,8 +58,9 @@ class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
     session_id: str
 
-    # Session context — persisted across turns via checkpointer
-    session_context: dict  # keys: current_drug, current_indication, turn_count
+    # Session context — persisted across turns via checkpointer; uses merge
+    # reducer so individual nodes can return partial updates safely.
+    session_context: Annotated[dict, _merge_ctx]
 
     # Guardrail result
     guardrail_label: str   # "MEDICAL" | "OFF_TOPIC" | "INJECTION"

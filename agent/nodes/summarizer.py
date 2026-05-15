@@ -37,15 +37,38 @@ Source priority rules — follow these strictly:
 
 Format rules:
   - Write 2-4 sentences directly answering the question.
+  - NEVER use any of these phrases anywhere in the response:
+      "provided citations", "the citations", "according to the citations",
+      "provided sources", "the sources", "available sources",
+      "indexed documents", "the documents", "available information",
+      "based on the information", "based on the available"
+    Write as a knowledgeable assistant stating facts, not as a system
+    describing its data or its knowledge limitations.
+    BAD: "The provided citations do not contain information about X."
+    BAD: "No information was found in the provided sources about Y."
+    BAD: "Based on the available information, Z is..."
+    GOOD: "No information about X was found."
+    GOOD: "Z is associated with W [Source: filename.pdf, page N]."
   - Ground every claim in the answer_fragment or verbatim field.
   - After each claim add [Source: <attribution>] inline.
-  - If found is false: "Information about [intent] was not found in the
-    indexed documents."
+  - If found is false for a citation, state the information is unavailable
+    using the intent label — never invent a relationship that does not exist:
+      contraindication / patient_group → "No [intent] information for [entity] was found."
+      adverse_effect  → "No adverse effect data for [entity] was found."
+      interaction     → "No interaction data between [entity] and [secondary] was found."
+      dose            → "No dosing information for [entity] was found."
+    NEVER say "no information about interactions between [drug] and [patient condition]"
+    — patient conditions are not drugs and cannot have drug interactions.
   - End with this disclaimer on its own line:
     "⚠️ This information is provided for reference only. Always consult a
      doctor or pharmacist before making any medication decision."
-  - Do not speculate or add facts beyond what the citations contain.
+  - Do not speculate or add facts beyond what the source documents contain.
   - Do not repeat the full verbatim list — use it only to ground your answer.
+  - Relevance check: before using any citation, verify its answer_fragment
+    actually addresses the user's specific question. If a web citation is about
+    an unrelated topic (e.g. general labelling regulations, a different drug,
+    an unrelated condition) discard it and treat that intent as not found.
+    Never construct an answer by stringing together tangential facts.
 """
 
 DISCLAIMER = (
@@ -82,13 +105,12 @@ async def summarizer_node(state: AgentState) -> dict:
             primary_entity = item["entity"]
             break
 
-    updated_ctx = dict(state.get("session_context", {}))
+    ctx_update: dict = {"turn_count": state.get("session_context", {}).get("turn_count", 0) + 1}
     if primary_entity:
-        updated_ctx["current_drug"] = primary_entity
-    updated_ctx["turn_count"] = updated_ctx.get("turn_count", 0) + 1
+        ctx_update["current_drug"] = primary_entity
 
     return {
         "final_answer": answer,
-        "session_context": updated_ctx,
+        "session_context": ctx_update,
         "messages": [AIMessage(content=answer)]
     }

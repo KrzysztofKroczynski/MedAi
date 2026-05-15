@@ -3,6 +3,7 @@
 from langgraph.graph import StateGraph, END
 from agent.state import AgentState
 from agent.nodes.guardrail import guardrail_node, guardrail_router
+from agent.nodes.patient_extractor import patient_extractor_node
 from agent.nodes.router import router_node
 from agent.nodes.executor import query_executor_node
 from agent.nodes.decision import llm_decision_node, decision_router
@@ -16,6 +17,7 @@ def build_graph():
 
     # Register processing nodes
     builder.add_node("guardrail", guardrail_node)
+    builder.add_node("patient_extractor", patient_extractor_node)
     builder.add_node("router", router_node)
     builder.add_node("executor", query_executor_node)
     builder.add_node("decision", llm_decision_node)
@@ -43,11 +45,12 @@ def build_graph():
 
     # Edges
     builder.add_conditional_edges("guardrail", guardrail_router, {
-        "router": "router",
+        "router": "patient_extractor",
         "reject_injection": "reject_injection",
         "reject_offtopic": "reject_offtopic"
     })
 
+    builder.add_edge("patient_extractor", "router")
     builder.add_edge("router", "executor")
     builder.add_edge("executor", "decision")
 

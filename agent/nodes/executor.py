@@ -12,18 +12,19 @@ NEO4J_SUPPLEMENT_THRESHOLD = 300
 
 async def query_executor_node(state: AgentState) -> dict:
     pending = [p for p in state["query_plan"] if p["status"] == "pending"]
+    patient_profile: str = state.get("session_context", {}).get("patient_profile", "")
 
     async def execute_one(item) -> list[EvidenceItem]:
         neo4j_evidence = await asyncio.to_thread(run_cypher_query, item)
 
         if not neo4j_evidence["content"]:
             # Nothing in Neo4j — fall back to web regardless of source hint
-            return [await run_web_search(item)]
+            return [await run_web_search(item, patient_profile)]
 
         thin = len(neo4j_evidence["content"]) < NEO4J_SUPPLEMENT_THRESHOLD
         if thin or item["source"] == "web":
             # Thin result, or router suspected this drug isn't well-indexed — supplement
-            web_evidence = await run_web_search(item)
+            web_evidence = await run_web_search(item, patient_profile)
             results = [neo4j_evidence]
             if web_evidence["content"]:
                 results.append(web_evidence)

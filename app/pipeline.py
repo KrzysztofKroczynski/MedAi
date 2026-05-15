@@ -55,7 +55,9 @@ def run_agent_query(
     state = {
         "messages": [HumanMessage(content=user_input)],
         "session_id": session_id,
-        "session_context": {},
+        # session_context intentionally omitted — MemorySaver restores it from
+        # the previous turn's checkpoint. Passing it here would reset it to {}
+        # on every message, wiping current_drug, patient_profile, and turn_count.
         "guardrail_label": "",
         "query_plan": [],
         "iteration": 0,
