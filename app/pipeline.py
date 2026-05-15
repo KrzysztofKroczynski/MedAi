@@ -26,8 +26,16 @@ PROJECT_ROOT = _ROOT
 # Agent pipeline
 # ---------------------------------------------------------------------------
 
-def run_agent_query(user_input: str, session_id: str) -> dict[str, Any]:
-    """Invoke the LangGraph pipeline. Returns answer, citations, no_data, raw trace."""
+def run_agent_query(
+    user_input: str,
+    session_id: str,
+    on_node_complete: Any | None = None,
+) -> dict[str, Any]:
+    """Invoke the LangGraph pipeline. Returns answer, citations, no_data, raw trace.
+
+    on_node_complete(node_name, updates) is called from the pipeline thread after
+    each node completes — useful for driving a live progress display.
+    """
     try:
         from agent.graph import graph
         from langchain_core.messages import HumanMessage
@@ -76,6 +84,8 @@ def run_agent_query(user_input: str, session_id: str) -> dict[str, Any]:
                         final_answer = updates["final_answer"]
                     if "citations" in updates:
                         citations = updates["citations"]
+                    if on_node_complete is not None:
+                        on_node_complete(node_name, updates)
 
         asyncio.run(_astream())
 

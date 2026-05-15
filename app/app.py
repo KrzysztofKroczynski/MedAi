@@ -5,6 +5,7 @@ from __future__ import annotations
 import concurrent.futures
 import logging
 import os
+import queue
 import shutil
 import sys
 import time
@@ -69,7 +70,7 @@ def _pdf_source_url(file_name: str, page_number: int | None = None) -> str:
 # Agent trace rendering
 # ---------------------------------------------------------------------------
 
-def _format_node_trace(node_name: str, updates: dict) -> dict:
+def _format_node_trace(node_name: str, updates: dict, current_iteration: int = 0) -> dict:
     info: dict[str, Any] = {"node": node_name}
 
     if node_name == "guardrail":
@@ -103,7 +104,7 @@ def _format_node_trace(node_name: str, updates: dict) -> dict:
 
     elif node_name == "decision":
         decision = updates.get("llm_decision", "")
-        iteration = updates.get("iteration", "?")
+        iteration = current_iteration
         more = updates.get("next_query_plan", [])
         info["decision"] = decision
         info["iteration"] = iteration
@@ -516,27 +517,59 @@ def main() -> None:
         st.markdown(user_question)
 
     with st.chat_message("assistant"):
-        with st.spinner("Searching medication documents..."):
-            try:
-                pipeline_result = run_agent_query(
-                    user_question, st.session_state["session_id"]
-                )
-            except Exception as exc:
-                logger.exception("Agent pipeline failed")
-                pipeline_result = {
-                    "answer": "Sorry, something went wrong. Please try again.",
-                    "citations": [],
-                    "no_data": True,
-                    "trace": [],
-                    "error": str(exc),
-                }
+        node_queue: queue.SimpleQueue = queue.SimpleQueue()
+        live_trace: list[dict] = []
+        current_iteration = 0
 
-        # Format raw trace for display and store in session state
-        st.session_state["agent_trace"] = [
-            _format_node_trace(item["node_name"], item["updates"])
-            for item in pipeline_result.get("trace", [])
-        ]
+        def _on_node(node_name: str, updates: dict) -> None:
+            node_queue.put((node_name, updates))
 
+        try:
+            with st.status("Searching medication documents…", expanded=debug) as agent_status:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(
+                        run_agent_query,
+                        user_question,
+                        st.session_state["session_id"],
+                        _on_node,
+                    )
+
+                    while not future.done():
+                        while not node_queue.empty():
+                            node_name, updates = node_queue.get_nowait()
+                            if "iteration" in updates:
+                                current_iteration = updates["iteration"]
+                            step = _format_node_trace(node_name, updates, current_iteration)
+                            live_trace.append(step)
+                            icon, label = _NODE_META.get(node_name, ("⚙️", node_name))
+                            st.write(f"{icon} **{label}** — {step.get('summary', '')}")
+                        time.sleep(0.15)
+
+                    pipeline_result = future.result()
+
+                # Drain any events that arrived after the loop exited
+                while not node_queue.empty():
+                    node_name, updates = node_queue.get_nowait()
+                    if "iteration" in updates:
+                        current_iteration = updates["iteration"]
+                    step = _format_node_trace(node_name, updates, current_iteration)
+                    live_trace.append(step)
+                    icon, label = _NODE_META.get(node_name, ("⚙️", node_name))
+                    st.write(f"{icon} **{label}** — {step.get('summary', '')}")
+
+                agent_status.update(label="Done", state="complete", expanded=False)
+
+        except Exception as exc:
+            logger.exception("Agent pipeline failed")
+            pipeline_result = {
+                "answer": "Sorry, something went wrong. Please try again.",
+                "citations": [],
+                "no_data": True,
+                "trace": [],
+                "error": str(exc),
+            }
+
+        st.session_state["agent_trace"] = live_trace
         assistant_payload = {k: v for k, v in pipeline_result.items() if k != "trace"}
         _render_assistant_message(assistant_payload, debug=debug)
 
