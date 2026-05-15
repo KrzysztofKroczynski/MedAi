@@ -1,8 +1,15 @@
 # Streamlit App
 
-**File:** `app/app.py`
+**Files:** `app/app.py` · `app/pipeline.py`
 
-Provides the web UI and connects user input to the agent pipeline. Also includes an in-app PDF ingestion workflow so new medication documents can be added without touching the command line.
+The app layer has two responsibilities, split across two files:
+
+| File | Role |
+|------|------|
+| `app/app.py` | Streamlit UI — chat, PDF upload, rendering, session state |
+| `app/pipeline.py` | Pipeline logic — agent query execution, PDF ingestion |
+
+`app.py` imports `run_agent_query` and `run_pdf_ingestion` from `pipeline.py` and calls them; all business logic lives in `pipeline.py`.
 
 ---
 
@@ -14,9 +21,14 @@ flowchart TB
         ST["Streamlit UI<br/>(chat + PDF upload)"]
     end
 
-    subgraph "app/app.py"
-        RP["_run_agent_pipeline()<br/>ThreadPoolExecutor → asyncio.run"]
-        IP["_render_ingestion_panel()<br/>inline 4-stage pipeline"]
+    subgraph "app/app.py (UI only)"
+        CH["chat handler<br/>_render_* functions"]
+        IP["_render_ingestion_panel()<br/>progress bar + result display"]
+    end
+
+    subgraph "app/pipeline.py (logic)"
+        RAQ["run_agent_query()<br/>ThreadPoolExecutor → asyncio.run"]
+        RPI["run_pdf_ingestion()<br/>load → chunk → extract → cache → Neo4j"]
     end
 
     subgraph "Agent Pipeline (LangGraph)"
@@ -34,18 +46,19 @@ flowchart TB
     end
 
     subgraph "Ingestion Pipeline"
-        LO[Loader] --> CH[Chunker] --> XT[Extractor] --> GB[Graph Builder]
+        LO[Loader] --> CK[Chunker] --> XT[Extractor] --> GB[Graph Builder]
     end
 
-    ST -->|chat message| RP
+    ST -->|chat message| CH
+    CH --> RAQ
     ST -->|upload PDF| IP
-    RP --> GR
-    SU -->|final_answer + citations| ST
-
+    IP --> RPI
+    RAQ --> GR
+    SU -->|final_answer + citations| CH
     EX --> NEO
     EX --> DDG
     CI --> PDFS
-    IP --> LO
+    RPI --> LO
     GB --> NEO
 ```
 
@@ -53,8 +66,6 @@ flowchart TB
 
 ```bash
 # Via Docker (recommended)
-make up
-# or
 docker compose up neo4j app -d
 
 # Locally (requires Neo4j running)
@@ -66,136 +77,138 @@ http://localhost:8501
 
 ---
 
-## UI Layout
+## `app/pipeline.py`
 
-### Normal chat mode
+Contains all pipeline logic. No Streamlit imports.
 
-- **Sidebar** — session info and **📤 Add New PDF** upload section (see below)
-- **Chat area** — conversation history rendered with `st.chat_message`
-- **Sources expander** — collapses citations under each assistant message; shows `attribution`, `intent`, and `verbatim` text per citation
-- **Agent trace expander** — visible when `?debug=1` is in the URL; shows per-node execution details for the last query
+### `run_agent_query(user_input, session_id) → dict`
 
-### Ingestion mode
+Invokes the LangGraph agent pipeline and returns:
 
-When a PDF is being ingested the chat area is replaced by a full-width **ingestion panel** (see below). The sidebar upload section remains visible.
+```python
+{
+    "answer":    str,          # final synthesised answer
+    "citations": list[dict],   # CitationItem list from the citation node
+    "no_data":   bool,         # True if no answer was generated
+    "trace":     list[dict],   # raw [{node_name, updates}] per node execution
+}
+```
+
+Wraps `graph.astream(...)` in `asyncio.run()` inside a `ThreadPoolExecutor` thread because Streamlit's script thread may already have a running event loop — calling `asyncio.run()` directly would raise `RuntimeError: This event loop is already running`.
+
+`app.py` formats the raw `trace` list into display-ready dicts via `_format_node_trace` before storing it in `st.session_state["agent_trace"]`.
+
+### `run_pdf_ingestion(pdf_path, progress=None) → dict`
+
+Runs the full PDF ingestion pipeline (load → chunk → extract → cache → Neo4j) for a single file.
+
+```python
+{
+    "pages":           int,
+    "chunks":          int,
+    "extractions":     int,
+    "entity_types":    dict[str, list[str]],   # type → deduplicated names
+    "cache_total":     int,                    # total records in extractions.json after merge
+    "nodes":           int,
+    "relations":       int,
+    "failed":          int,
+    "neo4j_breakdown": list[dict],             # per-label node counts from verify query
+    "error":           str | None,             # "no_pages" | "no_chunks" | None
+}
+```
+
+**`progress` dict** — optional mutable `{"completed": 0, "total": 0}`. The pipeline sets `total` after chunking and increments `completed` per extracted chunk. `app.py` polls this dict from the main thread to drive a live extraction progress bar while the pipeline runs in a `ThreadPoolExecutor` thread.
+
+**Cache behaviour** — `_append_to_extraction_cache` (private to `pipeline.py`) loads the existing `data/processed/extractions.json`, appends new records, and writes back. Non-destructive: previous extractions from other PDFs are preserved.
 
 ---
 
-## PDF Upload & Ingestion
+## `app/app.py`
 
-### Sidebar upload
+UI rendering only. All functions are either `_render_*` or helpers that call `st.*`.
+
+### Path Setup
+
+Both `app.py` and `pipeline.py` insert the project root and `app/` directory into `sys.path` at module load using `os.path.abspath(__file__)`. This ensures `agent/`, `shared/`, `graph/`, and `ingestion/` imports resolve correctly whether run locally or inside Docker (where the working directory is `/app`).
+
+### UI Layout
+
+**Chat mode (default)**
+
+- **Sidebar** — session info and **📤 Add New PDF** upload section
+- **Chat area** — conversation history via `st.chat_message`
+- **Sources expander** — citations per assistant message (intent, verbatim, PDF/web links)
+- **Agent trace expander** — visible only when `?debug=1` is in the URL
+
+**Ingestion mode**
+
+When `ingestion_active` is set in session state the chat area is replaced by the ingestion panel. The sidebar remains visible.
+
+### PDF Upload & Ingestion
 
 `_render_upload_sidebar()` renders a `st.file_uploader` accepting `.pdf` files.
 Clicking **🚀 Ingest PDF**:
-1. Saves the uploaded bytes to `data/pdfs/<filename>`
-2. Sets `ingestion_active = True` in session state
-3. Calls `st.rerun()` to switch to ingestion mode
 
-If the file already exists in `data/pdfs/` a warning is shown before the button.
+0. Saves uploaded bytes to `data/pdfs/<filename>`
+0. Sets `ingestion_active = True` in session state
+0. Calls `st.rerun()` to switch to ingestion panel
 
-### Ingestion panel (`_render_ingestion_panel`)
-
-Runs the full ingestion pipeline inline, displaying a live debug panel with two progress indicators:
+`_render_ingestion_panel()` is pure UI: it creates a `progress` dict, submits `run_pdf_ingestion` to a `ThreadPoolExecutor`, and polls `progress` every 0.4 s to update two progress bars:
 
 | Progress element | What it tracks |
 |------------------|----------------|
-| Overall `st.progress` bar | Advances in 5 steps: 0 → 15 → 30 → 75 → 82 → 100 % |
-| Per-chunk `st.progress` bar | Updates every 0.4 s via a poll loop while extraction runs in a `ThreadPoolExecutor` thread |
+| Overall `st.progress` bar | Advances proportionally to extraction progress (15–75%), jumps to 100% when done |
+| Per-chunk `st.progress` bar | Updates from `progress["completed"] / progress["total"]` |
 
-**Pipeline stages shown:**
+After the future completes, the function renders stage results (pages, chunks, entity breakdown, Neo4j stats) from the returned dict.
 
-| # | Stage | Details shown |
-|---|-------|---------------|
-| 1 | Load PDF | Page count |
-| 2 | Chunk text | Chunk count, token parameters |
-| 3 | Extract entities | Per-chunk progress bar; on completion: record count, entity/relation totals, deduplicated entity names grouped by type (up to 30 per type) |
-| 4 | Save cache | Path to `data/processed/extractions.json`, total record count after merge |
-| 5 | Write to Neo4j | Node count, relation count, warning if any records failed |
+### Agent Trace Rendering
 
-The `st.status` context manager marks the pipeline **complete** (green) or **error** (red) and keeps the log expanded so the user can read every step.
+`_format_node_trace(node_name, updates) → dict` converts a raw `{node_name, updates}` pair into a display-ready dict with a human-readable `summary` string and flattened fields per node type.
 
-After the pipeline finishes a summary row of `st.metric` cards is shown (pages / chunks / nodes / relations), plus an expandable entity-type breakdown.
+`_render_agent_trace(trace, container)` renders the formatted trace into any Streamlit container (main area or sidebar) using expanders, one per node step.
 
-The **← Back to chat** button clears all ingestion session state and returns to chat mode.
+### Session State
 
-### Cache behaviour
-
-`_append_to_extraction_cache(new_extractions)` loads the existing `data/processed/extractions.json` (if present), appends the new records, and writes the merged list back. This is non-destructive: previous extractions from other PDFs are preserved.
-
----
-
-## Agent Integration
-
-The app invokes the agent pipeline via `_run_agent_pipeline()`:
-
-```python
-def _run():
-    async def _astream():
-        async for chunk in graph.astream(state, config=config, stream_mode="updates"):
-            ...
-    asyncio.run(_astream())
-
-with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-    pool.submit(_run).result()
-```
-
-`graph.astream` is wrapped in `asyncio.run()` inside a `ThreadPoolExecutor` thread because Streamlit's script thread may already have an event loop — calling `asyncio.run()` directly would raise `RuntimeError: This event loop is already running`.
-
-The same pattern is used for extraction during in-app ingestion: `extract_from_chunks` (which calls `asyncio.run` internally) runs in a `ThreadPoolExecutor` thread while the main Streamlit thread polls a shared counter to update the progress bar.
-
-**Thread ID** (`config["configurable"]["thread_id"]`) is set to `st.session_state.session_id` (a UUID generated once per browser session). The `MemorySaver` checkpointer uses this to persist `session_context` across turns within the same session.
-
----
-
-## Session State
-
-### Chat state
+**Chat state**
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `session_id` | `str` (UUID) | Thread ID for MemorySaver |
+| `session_id` | `str` (UUID) | Thread ID for LangGraph `MemorySaver` |
 | `messages` | `list` | Displayed conversation history |
-| `agent_trace` | `list` | Trace from the last agent run (used by `?debug=1` panel) |
+| `agent_trace` | `list[dict]` | Formatted trace from last `run_agent_query` call |
 
-### Ingestion state
+**Ingestion state**
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `ingestion_active` | `bool` | When `True`, ingestion panel replaces the chat UI |
+| `ingestion_active` | `bool` | When `True`, ingestion panel replaces chat UI |
 | `ingestion_pdf_path` | `Path` | Absolute path to the saved PDF |
 | `ingestion_filename` | `str` | Original upload filename |
-| `ingestion_done` | `bool` | Set after the pipeline completes; prevents re-running on rerender |
-| `ingestion_result` | `dict` | Stats dict: `pages`, `chunks`, `extractions`, `nodes`, `relations`, `failed`, `entity_types` |
+| `ingestion_done` | `bool` | Set after pipeline completes; prevents re-run on rerender |
+| `ingestion_result` | `dict` | Full result dict from `run_pdf_ingestion` |
 
----
-
-## Debug Panel (`?debug=1`)
+### Debug Panel (`?debug=1`)
 
 Activate by appending `?debug=1` to the URL. Renders `_render_memory_panel()` in the sidebar:
 
 - **Session Context** — JSON from the LangGraph `MemorySaver` checkpointer
 - **Message History** — each turn expandable with full content
-- **Last Run — Agent Trace** — per-node expandable sections with guardrail label, query plan, evidence items, decision, citations, and answer preview
+- **Last Run — Agent Trace** — per-node expandable sections
 
-The agent trace is also surfaced inline below the assistant message in the chat area when `?debug=1` is active.
-
----
-
-## Path Setup
-
-`app.py` inserts both the project root and `app/` directory into `sys.path` at startup using `os.path.abspath(__file__)`. This ensures `agent/`, `shared/`, `graph/`, and `ingestion/` imports resolve correctly whether run locally or inside the Docker container (where the working directory is `/app`).
+The agent trace is also shown inline below the assistant message in the chat area.
 
 ---
 
 ## Static PDF Serving
 
-`_sync_static_pdfs()` mirrors `data/pdfs/` → `app/static/pdfs/` on startup and again after each in-app ingestion. Files are copied only when size or mtime differs. Streamlit serves them at `/app/static/pdfs/<filename>` with `#page=N` anchors for citation links.
+`_sync_static_pdfs()` mirrors `data/pdfs/` → `app/static/pdfs/` on startup and after each in-app ingestion. Files are copied only when size or mtime differs. Streamlit serves them at `/app/static/pdfs/<filename>` with `#page=N` anchors for citation links.
 
 ---
 
 ## Safety Display
 
-All assistant responses include the disclaimer appended by `summarizer_node`:
+All assistant responses include the medical disclaimer appended by `summarizer_node`:
 
 > ⚠️ This information is provided for reference only. Always consult a doctor or pharmacist before making any medication decision.
 

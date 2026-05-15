@@ -52,7 +52,7 @@ flowchart TD
 `seed.py` runs stage 4, loading cached extractions into Neo4j.
 `graph/schema.py` sets up constraints/indexes (run once before seeding).
 
-**In-app ingestion** — the Streamlit app (`app/app.py`) exposes a sidebar PDF uploader that triggers all four stages inline for a single uploaded file. New extractions are *appended* to the existing cache rather than overwriting it, so previously processed PDFs are unaffected.
+**In-app ingestion** — the Streamlit app exposes a sidebar PDF uploader that triggers all four stages for a single uploaded file. The pipeline logic lives in `app/pipeline.py` (`run_pdf_ingestion`); `app/app.py` calls it in a `ThreadPoolExecutor` thread and drives a live progress bar via a shared `progress` dict. New extractions are *appended* to the existing cache rather than overwriting it, so previously processed PDFs are unaffected.
 
 ## What Goes In / What Comes Out
 
