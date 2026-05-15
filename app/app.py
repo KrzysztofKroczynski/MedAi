@@ -445,8 +445,8 @@ def _render_ingestion_panel() -> None:
         _sync_static_pdfs()
         st.session_state["ingestion_done"] = True
         st.session_state["ingestion_result"] = result
-
-    result = st.session_state.get("ingestion_result", {})
+    else:
+        result = st.session_state.get("ingestion_result", {})
     if result:
         st.success(f"**{filename}** has been added to the knowledge graph!")
         col1, col2, col3, col4 = st.columns(4)

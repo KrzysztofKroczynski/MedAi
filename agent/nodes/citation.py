@@ -90,13 +90,10 @@ def _top_citations(
     return (preferred[:preferred_cap] + others)[:max_links]
 
 
-def _build_attribution(source_citations: list[str], entity: str) -> str:
-    """Format up to 5 attribution strings; prefer files that match the entity name."""
-    if not source_citations:
-        return ""
-    ordered = _top_citations(source_citations, entity, max_links=5)
+def _build_attribution(source_citations: list[str]) -> str:
+    """Format citation strings as 'file, page N / ...'."""
     parts = []
-    for s in ordered:
+    for s in source_citations:
         if "|" in s:
             file, page = s.split("|", 1)
             parts.append(f"{file}, page {page}")
@@ -117,7 +114,6 @@ def _source_links_from_citations(source_citations: list[str]) -> list[SourceLink
 
         if "|" in source:
             file_name, page_str = source.split("|", 1)
-            page_number = None
             try:
                 page_number = int(page_str)
             except ValueError:
@@ -150,20 +146,26 @@ def _source_links_from_citations(source_citations: list[str]) -> list[SourceLink
     return links
 
 
+def _not_found(ev: EvidenceItem, plan_item: QueryPlan, source_type: str) -> CitationItem:
+    return CitationItem(
+        query_id=ev["query_id"],
+        intent=plan_item["intent"],
+        answer_fragment=(
+            f"No data found for {plan_item['entity']} "
+            f"{plan_item['intent'].replace('_', ' ')}."
+        ),
+        verbatim="",
+        attribution="",
+        source_links=[],
+        source_type=source_type,
+        found=False,
+    )
+
+
 def _cite_one(ev: EvidenceItem, plan_item: QueryPlan, user_message: str) -> CitationItem:
     """Build a single CitationItem from one evidence item."""
     if not ev["content"]:
-        return CitationItem(
-            query_id=ev["query_id"],
-            intent=plan_item["intent"],
-            answer_fragment=f"No data found for {plan_item['entity']} "
-                            f"{plan_item['intent'].replace('_', ' ')}.",
-            verbatim="",
-            attribution="",
-            source_links=[],
-            source_type=ev["source_type"],
-            found=False,
-        )
+        return _not_found(ev, plan_item, ev["source_type"])
 
     # --- Web result ---
     if ev["source_type"] == "web":
@@ -183,17 +185,7 @@ def _cite_one(ev: EvidenceItem, plan_item: QueryPlan, user_message: str) -> Cita
 
     # --- Neo4j result ---
     if not ev["node_names"]:
-        return CitationItem(
-            query_id=ev["query_id"],
-            intent=plan_item["intent"],
-            answer_fragment=f"No data found for {plan_item['entity']} "
-                            f"{plan_item['intent'].replace('_', ' ')}.",
-            verbatim="",
-            attribution="",
-            source_links=[],
-            source_type="neo4j",
-            found=False,
-        )
+        return _not_found(ev, plan_item, "neo4j")
 
     # 1. Pick the most relevant node names
     relevant = _relevant_node_names(ev["node_names"], user_message, plan_item["entity"])
@@ -201,7 +193,7 @@ def _cite_one(ev: EvidenceItem, plan_item: QueryPlan, user_message: str) -> Cita
 
     # 2. Build attribution (prefer entity-matching source files, cap at 5)
     top_cits = _top_citations(ev["source_citations"], plan_item["entity"], max_links=5)
-    attribution = _build_attribution(ev["source_citations"], plan_item["entity"])
+    attribution = _build_attribution(top_cits)
     source_links = _source_links_from_citations(top_cits)
 
     # 3. Fetch verbatim snippet from the primary source PDF

@@ -69,6 +69,15 @@ query plan. All new items must have status "pending".
 """
 
 
+def _strip_fences(text: str) -> str:
+    """Strip markdown code fences from LLM JSON responses."""
+    if text.startswith("```"):
+        text = text.split("```", 2)[1]
+        if text.startswith("json"):
+            text = text[4:]
+    return text.strip()
+
+
 async def llm_decision_node(state: AgentState) -> dict:
     # Runaway safety ceiling
     if state["iteration"] >= _MAX_ITERATIONS:
@@ -89,12 +98,8 @@ async def llm_decision_node(state: AgentState) -> dict:
     # Parse NEED_MORE + new plan
     try:
         plan_start = response.index("NEW_PLAN:") + len("NEW_PLAN:")
-        plan_json = response[plan_start:].strip()
-        if plan_json.startswith("```"):
-            plan_json = plan_json.split("```", 2)[1]
-            if plan_json.startswith("json"):
-                plan_json = plan_json[4:]
-        new_plan: list[QueryPlan] = json.loads(plan_json.strip())
+        plan_json = _strip_fences(response[plan_start:].strip())
+        new_plan: list[QueryPlan] = json.loads(plan_json)
         for item in new_plan:
             item["status"] = "pending"
     except (ValueError, json.JSONDecodeError):

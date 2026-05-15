@@ -15,9 +15,9 @@ Returns a list of dicts [{text, metadata, entities, relations, model}] in origin
 from __future__ import annotations
 
 import asyncio
-import os
 import json
 import logging
+import os
 import re
 from typing import Any, Sequence
 
@@ -90,13 +90,8 @@ def _parse_extraction_json(raw_text: str) -> dict[str, list[dict[str, str]]]:
     if not isinstance(parsed, dict):
         raise ValueError("Extraction response must be a JSON object.")
 
-    raw_entities = parsed.get("entities", [])
-    raw_relations = parsed.get("relations", [])
-
-    if raw_entities is None:
-        raw_entities = []
-    if raw_relations is None:
-        raw_relations = []
+    raw_entities = parsed.get("entities") or []
+    raw_relations = parsed.get("relations") or []
 
     if not isinstance(raw_entities, list) or not isinstance(raw_relations, list):
         raise ValueError("'entities' and 'relations' must be JSON arrays.")

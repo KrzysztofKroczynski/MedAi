@@ -68,6 +68,15 @@ Output:
 """
 
 
+def _strip_fences(text: str) -> str:
+    """Strip markdown code fences from LLM JSON responses."""
+    if text.startswith("```"):
+        text = text.split("```", 2)[1]
+        if text.startswith("json"):
+            text = text[4:]
+    return text.strip()
+
+
 async def router_node(state: AgentState) -> dict:
     ctx = state.get("session_context", {})
 
@@ -80,12 +89,7 @@ async def router_node(state: AgentState) -> dict:
     result = await _llm.ainvoke([HumanMessage(content=prompt)])
 
     try:
-        raw = result.content.strip()
-        if raw.startswith("```"):
-            raw = raw.split("```", 2)[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        plan: list[QueryPlan] = json.loads(raw.strip())
+        plan: list[QueryPlan] = json.loads(_strip_fences(result.content.strip()))
     except (json.JSONDecodeError, ValueError):
         # Fallback: single general query with entity from context
         plan = [{
