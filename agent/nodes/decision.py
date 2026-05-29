@@ -27,31 +27,33 @@ Evidence accumulated so far:
 
 Evaluate using these criteria:
 
-  SUFFICIENT — choose this when:
+  SUFFICIENT — choose this when ALL of the following hold:
     1. Every query_id in the plan has at least one EvidenceItem with
-       non-empty content.
-    2. Neo4j results have non-empty node_names (facts to cite), OR a web
-       result with non-empty content covers the same intent.
-    3. The evidence, taken together, is enough to answer the specific question
-       that was asked. Partial or approximate answers are acceptable — perfect
-       completeness is not required.
+       substantive content (not just an empty list or placeholder).
+    2. Neo4j results have non-empty node_names (real facts to cite), OR a web
+       result with meaningful content covers the same intent.
+    3. The evidence directly addresses the specific question asked — not just
+       tangentially related. A user asking about drug interactions must have
+       interaction evidence, not just general drug info.
 
-  NEED_MORE — choose this ONLY when:
+  NEED_MORE — choose this when ANY of the following hold:
     1. A query_id has completely empty content (no Neo4j AND no web result)
        and a different query strategy (different entity spelling, web fallback)
        might succeed.
     2. The user's question explicitly names an entity that has not been queried
-       at all yet (not a drug mentioned in results — only drugs the USER asked
-       about).
+       at all yet (only entities the USER named — not drugs found in results).
+    3. Evidence exists but is too thin to answer the specific question
+       (e.g., interaction query returned general drug info with no interaction
+       data, dosage query returned drug node with no dose details).
 
   Hard limits — always respect:
     - NEVER add a follow-up query for a drug or entity that only appeared
       inside a result snippet. Only follow up entities the USER explicitly
       named in their question.
-    - NEVER re-query a (entity, intent) pair that already has evidence.
+    - NEVER re-query a (entity, intent) pair that already has substantive evidence.
     - NEVER issue more than 2 new query_ids per NEED_MORE round.
-    - When in doubt, choose SUFFICIENT — a concise grounded answer is better
-      than an exhaustive loop.
+    - After 3 rounds of NEED_MORE with no improvement, choose SUFFICIENT and
+      work with what you have.
 
 If SUFFICIENT, respond with exactly:
 DECISION: SUFFICIENT
